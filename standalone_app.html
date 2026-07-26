@@ -364,7 +364,7 @@
               setShowSavedToast(true);
               setTimeout(() => setShowSavedToast(false), 3000);
             } else { alert("File dữ liệu không đúng định dạng!"); }
-          } catch (err) { alert("Lỗi đọc file: " + err.message); }
+          } catch(err) { alert("Lỗi đọc file: " + err.message); }
         };
         reader.readAsText(file);
       };
@@ -513,8 +513,8 @@
         setTimeout(() => setShowSavedToast(false), 3000);
 
         // 2. Reset form ngay lập tức cho người dùng tiếp tục công việc
-        setDepartment('');
-        setDeptSearch('');
+        setDepartment(''); 
+        setDeptSearch(''); 
         setInspector('');
         setRows([{ id: `row-${Date.now()}-0`, location: 'Xe tiêm cấp cứu 1', criteria: [true, true, true, true, true, true, false], note: '', improvement: 0, image: null }]);
         setIsSaving(false);
@@ -729,9 +729,9 @@
                       {isFirebaseConnected ? '⚡ Đã kết nối Cloud' : '💾 Đang chạy Local'}
                     </span>
                   </h4>
-                  <textarea
-                    rows={4}
-                    placeholder='Dán object firebaseConfig (apiKey, authDomain, projectId...)'
+                  <textarea 
+                    rows={4} 
+                    placeholder='Dán object firebaseConfig (apiKey, authDomain, projectId...)' 
                     className="w-full text-xs p-3 border rounded-xl font-mono focus:border-blue-500 outline-none"
                     value={configJsonInput} onChange={e => setConfigJsonInput(e.target.value)}
                   />
@@ -1017,21 +1017,21 @@
 
           {/* 📱 MOBILE SLIDE-OUT DRAWER SIDEBAR (MENU TRƯỢT TỪ BÊN TRÁI SANG) */}
           {isMobileMenuOpen && (
-            <div
+            <div 
               className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 md:hidden transition-opacity"
               onClick={() => setIsMobileMenuOpen(false)}
             >
-              <div
+              <div 
                 className="w-72 bg-gradient-to-b from-blue-900 via-blue-950 to-slate-900 text-white h-full flex flex-col justify-between p-5 shadow-2xl space-y-6"
                 onClick={e => e.stopPropagation()}
               >
                 <div className="space-y-6">
                   <div className="flex items-center justify-between pb-4 border-b border-blue-800">
                     <div>
-                      <h2 className="font-black text-sm text-white uppercase tracking-wider">HỆ THỐNG QLCL</h2>
+                      <h2 className="font-black text-xs text-white uppercase tracking-wider">HỆ THỐNG QUẢN LÝ CHẤT LƯỢNG - QMS</h2>
                       <p className="text-[11px] text-blue-200 font-semibold italic">BVĐK Tỉnh Ninh Bình</p>
                     </div>
-                    <button
+                    <button 
                       onClick={() => setIsMobileMenuOpen(false)}
                       className="w-8 h-8 rounded-full bg-blue-800/60 hover:bg-blue-800 text-white font-bold flex items-center justify-center text-sm"
                     >
@@ -1095,9 +1095,9 @@
           <aside className="hidden md:flex bg-gradient-to-b from-blue-900 via-blue-950 to-slate-900 text-white w-72 shrink-0 flex-col justify-between p-5 border-r border-blue-800 min-h-screen">
             <div className="space-y-6">
               <div className="pb-5 border-b border-blue-800 space-y-2">
-                <h2 className="font-black text-base text-white uppercase tracking-wider">HỆ THỐNG QUẢN LÝ CHẤT LƯỢNG</h2>
+                <h2 className="font-black text-base text-white uppercase tracking-wider">HỆ THỐNG QUẢN LÝ CHẤT LƯỢNG - QMS</h2>
                 <p className="text-xs text-blue-200 font-semibold italic">Phòng Quản lý chất lượng BV - Bệnh viện Đa khoa tỉnh Ninh Bình</p>
-
+                
                 {/* Admin Status Badge Desktop */}
                 <div className="pt-2">
                   {isAdminLoggedIn ? (
@@ -1386,15 +1386,15 @@
                       </div>
 
                       <div className="pt-2 flex flex-col sm:flex-row gap-3">
-                        <button
-                          onClick={addRow}
+                        <button 
+                          onClick={addRow} 
                           className="flex-1 py-3 px-4 bg-white border-2 border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 rounded-2xl font-extrabold text-xs transition-colors shadow-xs"
                         >
                           + Thêm vị trí mới
                         </button>
-                        <button
-                          onClick={saveReport}
-                          disabled={isSaving}
+                        <button 
+                          onClick={saveReport} 
+                          disabled={isSaving} 
                           className="flex-1 py-3.5 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-2xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
                         >
                           {isSaving ? '⏳ Đang lưu kết quả...' : '💾 LƯU KẾT QUẢ ĐÁNH GIÁ 5S'}
