@@ -58,6 +58,7 @@ while ($listener.IsListening) {
                 ".json" { $response.ContentType = "application/json; charset=utf-8" }
                 ".png"  { $response.ContentType = "image/png" }
                 ".jpg"  { $response.ContentType = "image/jpeg" }
+                ".ico"  { $response.ContentType = "image/x-icon" }
                 default { $response.ContentType = "application/octet-stream" }
             }
 
