@@ -10,6 +10,15 @@ import {
   orderBy 
 } from 'firebase/firestore';
 
+export const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCaRIpOe1wIgGSe_Wd-8uFbNBifBnU0xfw",
+  authDomain: "qms-bvdk-ninh.firebaseapp.com",
+  projectId: "qms-bvdk-ninh",
+  storageBucket: "qms-bvdk-ninh.firebasestorage.app",
+  messagingSenderId: "760698304672",
+  appId: "1:760698304672:web:4cc6dfa5c7b7ae966ff1c5"
+};
+
 export const getStoredFirebaseConfig = () => {
   try {
     const stored = localStorage.getItem('FIREBASE_CONFIG_5S');
@@ -17,7 +26,7 @@ export const getStoredFirebaseConfig = () => {
   } catch (e) {
     console.error("Lỗi đọc Firebase Config từ localStorage:", e);
   }
-  return null;
+  return DEFAULT_FIREBASE_CONFIG;
 };
 
 export const saveFirebaseConfigToStorage = (configObj) => {

@@ -260,7 +260,7 @@ export default function App() {
   const [firebaseConfig, setFirebaseConfig] = useState(() => getStoredFirebaseConfig());
   const [isFirebaseConnected, setIsFirebaseConnected] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [configJsonInput, setConfigJsonInput] = useState('');
+  const [configJsonInput, setConfigJsonInput] = useState(() => JSON.stringify(getStoredFirebaseConfig(), null, 2));
   const [isSaving, setIsSaving] = useState(false);
   const [isCompressing, setIsCompressing] = useState({});
 
@@ -293,7 +293,8 @@ export default function App() {
 
   // Real-time Firebase Listener
   useEffect(() => {
-    const db = getDb();
+    const config = firebaseConfig || getStoredFirebaseConfig();
+    const db = initFirebase(config);
     if (db) {
       setIsFirebaseConnected(true);
       const unsubscribe = subscribeEvaluations((cloudData) => {
