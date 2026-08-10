@@ -53,8 +53,9 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
-  <!-- Lucide Icons UMD -->
+  <!-- Lucide Icons UMD & html2pdf.js -->
   <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
   <style>
     ::-webkit-scrollbar {
@@ -69,6 +70,40 @@
     ::-webkit-scrollbar-thumb {
       background: #cbd5e1;
       border-radius: 9999px;
+    }
+
+    .pdf-page-break-avoid {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+
+    @media print {
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+      }
+      body * {
+        visibility: hidden !important;
+      }
+      #printable-pdf-report, #printable-pdf-report * {
+        visibility: visible !important;
+      }
+      #printable-pdf-report {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 15px !important;
+        background: white !important;
+        color: #0f172a !important;
+      }
+      .no-print {
+        display: none !important;
+      }
     }
   </style>
 </head>
@@ -145,8 +180,8 @@
       "Phòng Hành chính": "PHONG_BAN", "Phòng Công nghệ thông tin": "PHONG_BAN",
       "Phòng Điều dưỡng": "PHONG_BAN", "Phòng Công tác xã hội": "PHONG_BAN",
       "Phòng Quản lý chất lượng Bệnh viện": "PHONG_BAN", "Trung tâm Đào tạo chỉ đạo tuyến": "PHONG_BAN",
-      "Khoa Huyết học truyền máu": "CAN_LAM_SANG", "Khoa khám bệnh và điều trị yêu cầu": "LAM_SANG",
-      "Khoa Khám bệnh": "LAM_SANG", "Khoa Giải phẫu bệnh": "CAN_LAM_SANG",
+      "Khoa Huyết học truyền máu": "CAN_LAM_SANG", "Khoa khám bệnh và điều trị yêu cầu": "CAN_LAM_SANG",
+      "Khoa Khám bệnh": "CAN_LAM_SANG", "Khoa Giải phẫu bệnh": "CAN_LAM_SANG",
       "Khoa Thăm dò chức năng": "CAN_LAM_SANG", "Khoa Kiểm soát nhiễm khuẩn": "CAN_LAM_SANG",
       "Khoa Dược": "CAN_LAM_SANG", "Khoa Hóa sinh – vi sinh": "CAN_LAM_SANG",
       "Khoa Dinh dưỡng": "CAN_LAM_SANG", "Trung tâm Chẩn đoán hình ảnh-Điện quang can thiệp": "CAN_LAM_SANG",
@@ -206,7 +241,120 @@
       }
     ];
 
+    const INITIAL_ASSIGNMENTS_5S = [
+      {
+        id: "assign-1",
+        inspector: "Trần Thị Hồng",
+        departments: ["Khoa Khám bệnh", "Khoa Phụ Sản", "Khoa Huyết học truyền máu"]
+      },
+      {
+        id: "assign-2",
+        inspector: "Vũ Thị Mai",
+        departments: ["Phòng Quản lý chất lượng Bệnh viện", "Phòng Hành chính"]
+      },
+      {
+        id: "assign-3",
+        inspector: "Đặng Quốc Việt",
+        departments: ["Phòng Vật tư thiết bị Y tế", "Khoa Dược"]
+      }
+    ];
+
+    const SAMPLE_LOCATIONS_BY_SYSTEM = {
+      PHONG_BAN: [
+        "Bàn làm việc của ...",
+        "Tủ tài liệu",
+        "Kho"
+      ],
+      LAM_SANG: [
+        "Bàn giao ban",
+        "Bàn làm việc",
+        "Tủ tài liệu",
+        "Xe tiêm",
+        "Tủ thuốc",
+        "Tủ đồ vải",
+        "Tủ vật tư",
+        "Buồng bệnh số ...",
+        "Nhà vệ sinh"
+      ],
+      CAN_LAM_SANG: [
+        "Bàn giao ban",
+        "Bàn làm việc",
+        "Tủ tài liệu",
+        "Xe tiêm",
+        "Tủ vật tư",
+        "Nhà vệ sinh"
+      ]
+    };
+
     const PIE_COLORS = ["#ef4444", "#f97316", "#f59e0b", "#2563eb", "#7c3aed", "#db2777", "#059669"];
+
+    const getSVGDoughnutDataUrl = (items, centerText, centerLabel) => {
+      const width = 160;
+      const height = 160;
+      const cx = 80;
+      const cy = 80;
+      const r = 65;
+      const rInner = 38;
+
+      if (!items || items.length === 0 || items.every(i => parseFloat(i.percentage) === 0)) {
+        const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+          <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#e2e8f0" stroke-width="24"/>
+          <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-family="sans-serif" font-size="11" font-weight="bold" fill="#94a3b8">${centerLabel || 'VỊ TRÍ LỖI'}</text>
+          <text x="${cx}" y="${cy + 18}" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="900" fill="#334155">${centerText || '0'}</text>
+        </svg>`;
+        return "data:image/svg+xml;utf8," + encodeURIComponent(svgStr);
+      }
+
+      const validItems = items.filter(i => parseFloat(i.percentage) > 0);
+      if (validItems.length === 1 && parseFloat(validItems[0].percentage) >= 99) {
+        const color = PIE_COLORS[0];
+        const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+          <circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}"/>
+          <circle cx="${cx}" cy="${cy}" r="${rInner}" fill="#ffffff"/>
+          <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-family="sans-serif" font-size="11" font-weight="bold" fill="#94a3b8">${centerLabel || 'VỊ TRÍ LỖI'}</text>
+          <text x="${cx}" y="${cy + 18}" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="900" fill="#1e293b">${centerText || '0'}</text>
+        </svg>`;
+        return "data:image/svg+xml;utf8," + encodeURIComponent(svgStr);
+      }
+
+      let accumulatedPercent = 0;
+      let pathsStr = '';
+
+      items.forEach((item, idx) => {
+        const pct = Math.max(parseFloat(item.percentage) || 0, 0);
+        if (pct === 0) return;
+        const startAngle = (accumulatedPercent / 100) * 360;
+        accumulatedPercent += pct;
+        const endAngle = (accumulatedPercent / 100) * 360;
+        const color = PIE_COLORS[idx % PIE_COLORS.length];
+
+        const startRad = (startAngle - 90) * (Math.PI / 180);
+        const endRad = (endAngle - 90) * (Math.PI / 180);
+
+        const x1 = (cx + r * Math.cos(startRad)).toFixed(2);
+        const y1 = (cy + r * Math.sin(startRad)).toFixed(2);
+        const x2 = (cx + r * Math.cos(endRad)).toFixed(2);
+        const y2 = (cy + r * Math.sin(endRad)).toFixed(2);
+
+        const largeArcFlag = pct > 50 ? 1 : 0;
+
+        pathsStr += `<path d="M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArcFlag} 1 ${x2} ${y2} Z" fill="${color}" stroke="#ffffff" stroke-width="1.5"/>`;
+      });
+
+      const fullSvgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        ${pathsStr}
+        <circle cx="${cx}" cy="${cy}" r="${rInner}" fill="#ffffff"/>
+        <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-family="sans-serif" font-size="11" font-weight="bold" fill="#94a3b8">${centerLabel || 'VỊ TRÍ LỖI'}</text>
+        <text x="${cx}" y="${cy + 18}" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="900" fill="#1e293b">${centerText || '0'}</text>
+      </svg>`;
+
+      return "data:image/svg+xml;utf8," + encodeURIComponent(fullSvgStr);
+    };
+
+    const renderSVGDoughnutChart = (items, centerText, centerLabel) => {
+      const dataUrl = getSVGDoughnutDataUrl(items, centerText, centerLabel);
+      return <img src={dataUrl} alt="Biểu đồ tròn 5S" className="w-32 h-32 md:w-36 md:h-36 object-contain shrink-0" />;
+    };
 
     const generateConicGradient = (items) => {
       if (!items || items.length === 0) return 'conic-gradient(#e2e8f0 0% 100%)';
@@ -323,6 +471,7 @@
       });
       const [selectedUnitForReport, setSelectedUnitForReport] = useState(null);
       const [viewImageModal, setViewImageModal] = useState(null);
+      const [printSubsystemModal, setPrintSubsystemModal] = useState(null);
 
       // Tự động lưu vĩnh viễn vào LocalStorage
       useEffect(() => {
@@ -383,7 +532,7 @@
         reader.readAsText(file);
       };
 
-      // Form state
+      // Form state & Phân công đánh giá 5S
       const [department, setDepartment] = useState('');
       const [inspector, setInspector] = useState('');
       const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -398,11 +547,31 @@
       const [toastMessage, setToastMessage] = useState('Đã lưu thành công dữ liệu!');
       const [dbRef, setDbRef] = useState(null);
 
+      // Phân công đánh giá 5S State
+      const [assignments5S, setAssignments5S] = useState(() => {
+        try {
+          const stored = localStorage.getItem('ASSIGNMENTS_5S');
+          return stored ? JSON.parse(stored) : INITIAL_ASSIGNMENTS_5S;
+        } catch (e) { return INITIAL_ASSIGNMENTS_5S; }
+      });
+      const [newInspectorName, setNewInspectorName] = useState('');
+
       useEffect(() => {
         if (window.lucide) window.lucide.createIcons();
       });
 
-      // Firebase Setup
+      // Đóng dropdown gợi ý Khoa/Phòng khi click ra ngoài khoảng trống
+      useEffect(() => {
+        const handleClickOutside = (event) => {
+          if (suggestionRef.current && !suggestionRef.current.contains(event.target)) {
+            setShowSuggestions(false);
+          }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+      }, []);
+
+      // Firebase Setup & Real-time sync for Evaluations + Assignments
       useEffect(() => {
         if (window.firebase && firebaseConfig && firebaseConfig.apiKey) {
           try {
@@ -411,14 +580,29 @@
             setDbRef(db);
             setIsFirebaseConnected(true);
 
-            const unsubscribe = db.collection('evaluations_5s').orderBy('createdAt', 'desc').onSnapshot((snapshot) => {
+            const unsubscribeEval = db.collection('evaluations_5s').orderBy('createdAt', 'desc').onSnapshot((snapshot) => {
               const list = [];
               snapshot.forEach(docSnap => list.push({ id: docSnap.id, ...docSnap.data() }));
               if (list.length > 0) setHospitalDatabase(list);
             }, (err) => {
               console.warn("Chưa đọc được dữ liệu Cloud:", err);
             });
-            return () => unsubscribe();
+
+            const unsubscribeAssign = db.collection('settings_5s').doc('assignments').onSnapshot((docSnap) => {
+              if (docSnap.exists) {
+                const data = docSnap.data();
+                if (data && Array.isArray(data.list)) {
+                  setAssignments5S(data.list);
+                }
+              }
+            }, (err) => {
+              console.warn("Chưa đọc được phân công Cloud:", err);
+            });
+
+            return () => {
+              unsubscribeEval();
+              unsubscribeAssign();
+            };
           } catch (err) {
             console.error("Firebase init error:", err);
             setIsFirebaseConnected(false);
@@ -428,15 +612,116 @@
         }
       }, [firebaseConfig]);
 
+      // Quản lý Phân công Đánh giá 5S (Admin)
+      const handleSaveAssignmentsToCloud = (newList) => {
+        const listToSave = newList || assignments5S;
+        setAssignments5S(listToSave);
+        try {
+          localStorage.setItem('ASSIGNMENTS_5S', JSON.stringify(listToSave));
+        } catch(e) {}
+
+        if (isFirebaseConnected && dbRef) {
+          dbRef.collection('settings_5s').doc('assignments').set({
+            list: listToSave,
+            updatedAt: new Date().toISOString()
+          }).catch(err => console.warn("Lỗi lưu phân công Firebase:", err));
+        }
+
+        setToastMessage("📋 Đã lưu Kế hoạch Phân công đánh giá 5S thành công!");
+        setShowSavedToast(true);
+        setTimeout(() => setShowSavedToast(false), 3000);
+      };
+
+      const handleAddInspector = () => {
+        if (!newInspectorName || !newInspectorName.trim()) return alert("Vui lòng nhập tên Cán bộ đánh giá!");
+        const nameTrim = newInspectorName.trim();
+        if (assignments5S.some(a => a.inspector.toLowerCase() === nameTrim.toLowerCase())) {
+          return alert("Tên cán bộ này đã có trong danh sách phân công!");
+        }
+        const updated = [
+          ...assignments5S,
+          { id: `assign-${Date.now()}`, inspector: nameTrim, departments: [] }
+        ];
+        handleSaveAssignmentsToCloud(updated);
+        setNewInspectorName('');
+      };
+
+      const handleRemoveInspector = (targetId, inspectorName) => {
+        if (window.confirm(`⚠️ Bạn có chắc chắn muốn xóa Cán bộ đánh giá "${inspectorName || 'này'}" khỏi Kế hoạch phân công?`)) {
+          const updated = assignments5S.filter(a => {
+            if (targetId && a.id) return a.id !== targetId;
+            return a.inspector.trim().toLowerCase() !== (inspectorName || '').trim().toLowerCase();
+          });
+          handleSaveAssignmentsToCloud(updated);
+        }
+      };
+
+      const handleAddDeptToInspector = (targetId, inspectorName, deptName) => {
+        const updated = assignments5S.map(a => {
+          const isMatch = (targetId && a.id && a.id === targetId) || (a.inspector.trim().toLowerCase() === (inspectorName || '').trim().toLowerCase());
+          if (isMatch) {
+            const depts = a.departments || [];
+            if (depts.includes(deptName)) return a;
+            return { ...a, departments: [...depts, deptName] };
+          }
+          return a;
+        });
+        handleSaveAssignmentsToCloud(updated);
+      };
+
+      const handleRemoveDeptFromInspector = (targetId, inspectorName, deptName) => {
+        const updated = assignments5S.map(a => {
+          const isMatch = (targetId && a.id && a.id === targetId) || (a.inspector.trim().toLowerCase() === (inspectorName || '').trim().toLowerCase());
+          if (isMatch) {
+            const depts = a.departments || [];
+            return { ...a, departments: depts.filter(d => d !== deptName) };
+          }
+          return a;
+        });
+        handleSaveAssignmentsToCloud(updated);
+      };
+
+      // Tự động lọc danh sách Khoa/Phòng theo Người đánh giá được phân công
+      const assignedDeptsForInspector = useMemo(() => {
+        if (!inspector || !inspector.trim()) return null;
+        const found = assignments5S.find(a => a.inspector.trim().toLowerCase() === inspector.trim().toLowerCase());
+        if (found && Array.isArray(found.departments) && found.departments.length > 0) {
+          return found.departments;
+        }
+        return null;
+      }, [inspector, assignments5S]);
+
+      const availableDeptList = useMemo(() => {
+        if (assignedDeptsForInspector && assignedDeptsForInspector.length > 0) {
+          return assignedDeptsForInspector;
+        }
+        return DEPARTMENTS;
+      }, [assignedDeptsForInspector]);
+
+      const filteredDepartments = useMemo(() => {
+        return availableDeptList.filter(d => d.toLowerCase().includes(deptSearch.toLowerCase()));
+      }, [availableDeptList, deptSearch]);
+
+      // Xác định phân hệ và danh sách vị trí mẫu tương ứng với Khoa/Phòng đang chọn
+      const currentSubsystem = useMemo(() => {
+        if (!department) return 'LAM_SANG';
+        return DEPT_SYSTEM_MAP[department] || 'LAM_SANG';
+      }, [department]);
+
+      const availableSampleLocations = useMemo(() => {
+        return SAMPLE_LOCATIONS_BY_SYSTEM[currentSubsystem] || SAMPLE_LOCATIONS_BY_SYSTEM.LAM_SANG;
+      }, [currentSubsystem]);
+
       const selectDepartment = (name) => {
         setDepartment(name);
         setDeptSearch(name);
         setShowSuggestions(false);
       };
 
-      const addRow = () => {
+      const addRow = (defaultLocation) => {
         const newId = `row-${Date.now()}`;
-        setRows(prev => [...prev, { id: newId, location: `Vị trí đánh giá ${rows.length + 1}`, criteria: [true, true, true, true, true, true, false], note: '', improvement: 0, image: null }]);
+        const initialLoc = (typeof defaultLocation === 'string' && defaultLocation) ? defaultLocation : (availableSampleLocations[0] || `Vị trí đánh giá ${rows.length + 1}`);
+        setRows(prev => [...prev, { id: newId, location: initialLoc, criteria: [true, true, true, true, true, true, false], note: '', improvement: 0, image: null }]);
         setExpandedRowId(newId);
       };
 
@@ -480,10 +765,6 @@
         return { total, passed, percentage, totalImprovements };
       }, [rows]);
 
-      const filteredDepartments = useMemo(() => {
-        if (!deptSearch) return DEPARTMENTS;
-        return DEPARTMENTS.filter(d => d.toLowerCase().includes(deptSearch.toLowerCase()));
-      }, [deptSearch]);
 
       const handleSaveFirebaseConfig = () => {
         try {
@@ -550,7 +831,7 @@
 
       const dashboardStats = useMemo(() => {
         const generateSystemStats = (sysCode) => {
-          const evals = filteredHospitalDatabase.filter(e => e.system === sysCode);
+          const evals = filteredHospitalDatabase.filter(e => (DEPT_SYSTEM_MAP[e.department] || e.system) === sysCode);
           const rankMap = {};
           evals.forEach(ev => {
             if (!rankMap[ev.department]) {
@@ -632,10 +913,10 @@
         return { LAM_SANG: generateSystemStats('LAM_SANG'), PHONG_BAN: generateSystemStats('PHONG_BAN'), CAN_LAM_SANG: generateSystemStats('CAN_LAM_SANG') };
       }, [filteredHospitalDatabase]);
 
-      // Top 3 đv vi phạm của MỖI PHÂN HỆ dành riêng cho TRANG CHỦ
-      const homeTop3FailedStats = useMemo(() => {
-        const getTop3 = (sysCode) => {
-          const evals = filteredHospitalDatabase.filter(e => e.system === sysCode);
+      // Top 5 đv vi phạm của MỖI PHÂN HỆ dành riêng cho TRANG CHỦ
+      const homeTop5FailedStats = useMemo(() => {
+        const getTop5 = (sysCode) => {
+          const evals = filteredHospitalDatabase.filter(e => (DEPT_SYSTEM_MAP[e.department] || e.system) === sysCode);
           const map = {};
           evals.forEach(ev => {
             let failed = 0;
@@ -645,9 +926,9 @@
             });
             if (failed > 0) map[ev.department] = (map[ev.department] || 0) + failed;
           });
-          return Object.entries(map).map(([dept, value]) => ({ label: dept, value })).sort((a, b) => b.value - a.value).slice(0, 3);
+          return Object.entries(map).map(([dept, value]) => ({ label: dept, value })).sort((a, b) => b.value - a.value).slice(0, 5);
         };
-        return { LAM_SANG: getTop3('LAM_SANG'), PHONG_BAN: getTop3('PHONG_BAN'), CAN_LAM_SANG: getTop3('CAN_LAM_SANG') };
+        return { LAM_SANG: getTop5('LAM_SANG'), PHONG_BAN: getTop5('PHONG_BAN'), CAN_LAM_SANG: getTop5('CAN_LAM_SANG') };
       }, [filteredHospitalDatabase]);
 
       const top5FailedUnitsImages = useMemo(() => {
@@ -1009,6 +1290,270 @@
             </div>
           )}
 
+          {/* 🖨️ FULL SUBSYSTEM PDF REPORT MODAL */}
+          {printSubsystemModal && (() => {
+            const sysNameMap = {
+              'LAM_SANG': 'KHỐI LÂM SÀNG',
+              'PHONG_BAN': 'KHỐI PHÒNG BAN',
+              'CAN_LAM_SANG': 'KHỐI CẬN LÂM SÀNG'
+            };
+            const sysTitle = sysNameMap[printSubsystemModal] || 'BÁO CÁO 5S';
+            const sysStats = dashboardStats[printSubsystemModal];
+            const sysRanking = sysStats ? sysStats.ranking : [];
+            const sysFailedUnits = sysStats ? sysStats.failedUnits : [];
+            const sysFailedLocations = sysStats ? sysStats.failedLocations : [];
+            const sysSFailures = sysStats ? sysStats.sFailures : [];
+            const sysTotalFailedLocs = sysStats ? sysStats.totalFailedLocations : 0;
+
+            const sysImages = [];
+            filteredHospitalDatabase.forEach(ev => {
+              if (ev.system === printSubsystemModal) {
+                ev.rows.forEach(r => {
+                  if (r.image) {
+                    const isPassed = r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false;
+                    if (!isPassed) {
+                      sysImages.push({
+                        department: ev.department,
+                        inspector: r.inspector || ev.inspector || "Đoàn kiểm tra",
+                        date: r.date || ev.date || "Gần đây",
+                        location: r.location,
+                        image: r.image,
+                        note: r.note || "Chưa đạt tiêu chí 5S"
+                      });
+                    }
+                  }
+                });
+              }
+            });
+
+            return (
+              <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-2 md:p-6" onClick={() => setPrintSubsystemModal(null)}>
+                <div className="bg-white rounded-3xl overflow-hidden max-w-5xl w-full max-h-[92vh] flex flex-col shadow-2xl border" onClick={e => e.stopPropagation()}>
+                  
+                  {/* Modal Controls Header (no-print) */}
+                  <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-4 px-6 flex justify-between items-center shrink-0 no-print">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">🖨️</span>
+                      <div>
+                        <h3 className="font-black text-base uppercase">Xem Trước Báo Cáo PDF - {sysTitle}</h3>
+                        <p className="text-xs text-blue-200">Đầy đủ biểu đồ, xếp hạng và hình ảnh bằng chứng vi phạm</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          const element = document.getElementById('printable-pdf-report');
+                          if (element && window.html2pdf) {
+                            const opt = {
+                              margin: [8, 8, 8, 8],
+                              filename: `BaoCao_5S_${sysTitle.replace(/\s+/g, '_')}_NinhBinh.pdf`,
+                              image: { type: 'jpeg', quality: 0.98 },
+                              html2canvas: { scale: 2, useCORS: true, logging: false },
+                              jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                              pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+                            };
+                            window.html2pdf().set(opt).from(element).save();
+                          } else {
+                            window.print();
+                          }
+                        }}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-black transition-all shadow flex items-center gap-1.5"
+                      >
+                        📥 LƯU FILE PDF CHUẨN ĐẸP
+                      </button>
+                      <button
+                        onClick={() => setPrintSubsystemModal(null)}
+                        className="bg-white/10 hover:bg-white/20 text-white w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Printable Report Body */}
+                  <div className="p-6 md:p-8 overflow-y-auto space-y-6 flex-1 bg-white text-slate-900" id="printable-pdf-report">
+                    
+                    {/* Header Báo cáo chính thức */}
+                    <div className="border-b-2 border-blue-900 pb-4 space-y-3 pdf-page-break-avoid">
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="flex items-center gap-3">
+                          <img src="./logo-benh-vien.jpg" alt="Logo" className="w-14 h-14 rounded-full border border-blue-200 object-cover" />
+                          <div>
+                            <h4 className="font-black text-xs md:text-sm text-blue-950 uppercase tracking-wide">BỆNH VIỆN ĐA KHOA TỈNH NINH BÌNH</h4>
+                            <p className="text-xs font-extrabold text-blue-800 uppercase">PHÒNG QUẢN LÝ CHẤT LƯỢNG BỆNH VIỆN</p>
+                          </div>
+                        </div>
+                        <div className="text-right text-[11px] text-slate-500 italic">
+                          <p>Kỳ báo cáo: <strong>{selectedMonth === 'ALL' ? 'Tất cả các kỳ' : `Tháng ${selectedMonth}`}</strong></p>
+                          <p>Ngày xuất: <strong>{new Date().toLocaleDateString('vi-VN')}</strong></p>
+                        </div>
+                      </div>
+
+                      <div className="text-center pt-2">
+                        <h2 className="text-xl md:text-2xl font-black text-blue-900 uppercase tracking-wide">BÁO CÁO KẾT QUẢ ĐÁNH GIÁ CHẤT LƯỢNG 5S</h2>
+                        <p className="text-sm font-extrabold text-indigo-700 uppercase tracking-widest mt-0.5">{sysTitle}</p>
+                      </div>
+                    </div>
+
+                    {/* Phần 1: Bảng Xếp Hạng Đơn Vị */}
+                    <div className="space-y-3 pdf-page-break-avoid">
+                      <h3 className="font-black text-sm uppercase text-slate-900 flex items-center gap-2 border-b pb-1">
+                        <span>🏆 I. BẢNG XẾP HẠNG THỰC HIỆN 5S CÁC ĐƠN VỊ</span>
+                      </h3>
+                      {sysRanking.length > 0 ? (
+                        <div className="overflow-x-auto border rounded-xl shadow-xs">
+                          <table className="w-full text-xs text-left border-collapse">
+                            <thead>
+                              <tr className="bg-blue-900 text-white font-extrabold uppercase">
+                                <th className="p-2.5 text-center w-12 border-r border-blue-800">STT</th>
+                                <th className="p-2.5 border-r border-blue-800">Khoa / Phòng / Trung Tâm</th>
+                                <th className="p-2.5 text-center border-r border-blue-800">Số vị trí chấm</th>
+                                <th className="p-2.5 text-center border-r border-blue-800">Vị trí Đạt</th>
+                                <th className="p-2.5 text-center border-r border-blue-800">Vị trí Chưa Đạt</th>
+                                <th className="p-2.5 text-center border-r border-blue-800">Tỷ Lệ Đạt</th>
+                                <th className="p-2.5 text-center">Xếp Loại</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sysRanking.map((item, idx) => {
+                                const pct = parseFloat(item.percentage);
+                                const rankBadge = pct >= 90 ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : pct >= 75 ? 'bg-blue-100 text-blue-800 border-blue-300' : 'bg-red-100 text-red-800 border-red-300';
+                                const rankText = pct >= 90 ? 'Xuất sắc' : pct >= 75 ? 'Khá/Tốt' : 'Cần cải thiện';
+                                return (
+                                  <tr key={idx} className={idx % 2 === 0 ? 'bg-slate-50/70' : 'bg-white'}>
+                                    <td className="p-2 text-center font-bold border-r border-slate-200">{idx + 1}</td>
+                                    <td className="p-2 font-bold text-slate-900 border-r border-slate-200">{item.department}</td>
+                                    <td className="p-2 text-center font-bold text-slate-700 border-r border-slate-200">{item.total}</td>
+                                    <td className="p-2 text-center font-bold text-emerald-700 border-r border-slate-200">{item.passed}</td>
+                                    <td className="p-2 text-center font-bold text-red-600 border-r border-slate-200">{item.failed}</td>
+                                    <td className="p-2 text-center font-black text-blue-900 border-r border-slate-200">{item.percentage}%</td>
+                                    <td className="p-2 text-center">
+                                      <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] border ${rankBadge}`}>{rankText}</span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : <p className="text-xs text-slate-400 italic">Chưa có dữ liệu đánh giá cho phân hệ này</p>}
+                    </div>
+
+                    {/* Phần 2: Biểu Đồ Thống Kê */}
+                    <div className="space-y-4 pt-2 pdf-page-break-avoid">
+                      <h3 className="font-black text-sm uppercase text-slate-900 border-b pb-1">
+                        📊 II. BIỂU ĐỒ THỐNG KÊ LỖI VI PHẠM 5S
+                      </h3>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Biểu đồ cột */}
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3 pdf-page-break-avoid">
+                          <h4 className="font-extrabold text-xs uppercase text-slate-800">1. Top 5 đơn vị có nhiều vị trí không đạt nhất</h4>
+                          {sysFailedUnits.length > 0 ? (
+                            <div className="flex flex-col">
+                              <div className="flex items-end justify-around h-36 gap-2 border-b border-slate-300 pb-0 px-1">
+                                {sysFailedUnits.map((u, i) => {
+                                  const maxVal = Math.max(...sysFailedUnits.map(x => x.value), 1);
+                                  const heightPct = Math.max(Math.round((u.value / maxVal) * 100), 20);
+                                  const barColor = i === 0 ? 'bg-red-600' : i === 1 ? 'bg-red-500' : i === 2 ? 'bg-orange-500' : 'bg-amber-500';
+                                  return (
+                                    <div key={i} className="flex-1 flex flex-col items-center justify-end h-full max-w-[48px]">
+                                      <span className="text-[10px] font-black text-red-600 mb-1">{u.value}</span>
+                                      <div className={`w-full ${barColor} rounded-t-md`} style={{ height: `${heightPct}%` }}></div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <div className="flex items-start justify-around gap-2 pt-2 min-h-[32px] px-1">
+                                {sysFailedUnits.map((u, i) => (
+                                  <div key={i} className="flex-1 max-w-[48px] text-center">
+                                    <span className="text-[9px] font-bold text-slate-700 line-clamp-2">{u.label}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : <p className="text-xs text-slate-400 italic">Không có dữ liệu lỗi</p>}
+                        </div>
+
+                        {/* Biểu đồ tròn vị trí dạng SVG */}
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3 pdf-page-break-avoid">
+                          <h4 className="font-extrabold text-xs uppercase text-slate-800">2. 5 vị trí không đạt 5S nhiều nhất</h4>
+                          <div className="flex items-center gap-4">
+                            <div className="shrink-0 flex items-center justify-center">
+                              {renderSVGDoughnutChart(sysFailedLocations, sysTotalFailedLocs, 'VỊ TRÍ LỖI')}
+                            </div>
+                            <div className="space-y-1 text-[11px] flex-1">
+                              {sysFailedLocations.map((loc, idx) => (
+                                <div key={idx} className="flex justify-between font-bold">
+                                  <span className="truncate max-w-[140px]">● {loc.label}</span>
+                                  <span>{loc.count} ({loc.percentage}%)</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Biểu đồ tròn S1-S5 */}
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3 pdf-page-break-avoid">
+                        <h4 className="font-extrabold text-xs uppercase text-slate-800">3. Phân bổ các loại tiêu chí lỗi S (S1 - S5)</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                          {sysSFailures.map((s, idx) => (
+                            <div key={s.key} className="bg-white p-2 rounded-lg border font-bold text-center space-y-0.5">
+                              <span className="text-[10px] text-slate-500 block truncate">{s.label}</span>
+                              <span className="text-sm font-black text-blue-900">{s.count} lỗi</span>
+                              <span className="text-[10px] text-slate-400 block">({s.percentage}%)</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Phần 3: Hình Ảnh Bằng Chứng Vi Phạm */}
+                    <div className="space-y-3 pt-2 pdf-page-break-avoid">
+                      <h3 className="font-black text-sm uppercase text-slate-900 border-b pb-1">
+                        📷 III. BẰNG CHỨNG HÌNH ẢNH VI PHẠM THỰC TẾ
+                      </h3>
+                      {sysImages.length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          {sysImages.map((imgItem, idx) => (
+                            <div key={idx} className="bg-white border rounded-xl overflow-hidden shadow-xs space-y-1.5 p-2 pdf-page-break-avoid">
+                              <div className="h-36 bg-slate-100 rounded-lg overflow-hidden flex items-center justify-center">
+                                <img src={imgItem.image} alt="Bằng chứng" className="max-h-full max-w-full object-contain" />
+                              </div>
+                              <div className="text-[11px] space-y-0.5">
+                                <p className="font-extrabold text-blue-900 truncate">{imgItem.department}</p>
+                                <p className="font-bold text-slate-700 truncate">Vị trí: {imgItem.location}</p>
+                                <p className="text-red-600 font-semibold italic line-clamp-2">Lỗi: {imgItem.note}</p>
+                                <p className="text-[10px] text-slate-400">📅 {imgItem.date} • 👤 {imgItem.inspector}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-400 italic">Không có hình ảnh vi phạm được ghi nhận</p>
+                      )}
+                    </div>
+
+                    {/* Chữ ký xác nhận */}
+                    <div className="pt-6 border-t flex justify-between text-center text-xs font-bold pdf-page-break-avoid">
+                      <div className="space-y-1">
+                        <p className="uppercase text-slate-600">NGƯỜI LẬP BÁO CÁO</p>
+                        <p className="text-[10px] text-slate-400 italic">(Ký và ghi rõ họ tên)</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="uppercase text-blue-950">TRƯỞNG PHÒNG QUẢN LÝ CHẤT LƯỢNG</p>
+                        <p className="text-[10px] text-slate-400 italic">(Ký, đóng dấu và ghi rõ họ tên)</p>
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+              </div>
+            );
+          })()}
+
           {/* 📱 MOBILE TOP HEADER BAR (HIỂN THỊ TRÊN MÀN HÌNH NHỎ) */}
           <header className="md:hidden bg-gradient-to-r from-blue-900 to-blue-950 text-white p-3.5 px-4 flex items-center justify-between shadow-md sticky top-0 z-40">
             <div className="flex items-center gap-3">
@@ -1195,61 +1740,74 @@
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4">
                     <div>
                       <h3 className="font-black text-base uppercase text-slate-900 flex items-center gap-2">
-                        <span>📊 TOP 3 ĐƠN VỊ CÓ NHIỀU VỊ TRÍ KHÔNG ĐẠT 5S NHẤT</span>
+                        <span>📊 TOP 5 ĐƠN VỊ CÓ NHIỀU VỊ TRÍ KHÔNG ĐẠT 5S NHẤT</span>
                       </h3>
+                      <p className="text-xs text-slate-500 italic mt-0.5">
+                        Bấm vào từng phân hệ để chuyển thẳng về Báo cáo tổng hợp phần đánh giá 5S
+                      </p>
                     </div>
                     {/* Chú thích màu sắc xếp hạng */}
-                    <div className="flex items-center gap-3 text-xs font-bold shrink-0 bg-slate-100/80 px-3 py-2 rounded-xl">
-                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500 inline-block shadow-sm"></span> Top 1</span>
-                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-orange-500 inline-block shadow-sm"></span> Top 2</span>
-                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-amber-400 inline-block shadow-sm"></span> Top 3</span>
+                    <div className="flex items-center gap-2 text-[11px] font-bold shrink-0 bg-slate-100/80 px-3 py-2 rounded-xl flex-wrap">
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-500 inline-block shadow-sm"></span> Top 1</span>
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500 inline-block shadow-sm"></span> Top 2</span>
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block shadow-sm"></span> Top 3</span>
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-yellow-400 inline-block shadow-sm"></span> Top 4</span>
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-blue-400 inline-block shadow-sm"></span> Top 5</span>
                     </div>
                   </div>
 
                   {(() => {
                     const allVals = [
-                      ...homeTop3FailedStats.LAM_SANG.map(x => x.value),
-                      ...homeTop3FailedStats.PHONG_BAN.map(x => x.value),
-                      ...homeTop3FailedStats.CAN_LAM_SANG.map(x => x.value)
+                      ...homeTop5FailedStats.LAM_SANG.map(x => x.value),
+                      ...homeTop5FailedStats.PHONG_BAN.map(x => x.value),
+                      ...homeTop5FailedStats.CAN_LAM_SANG.map(x => x.value)
                     ];
                     const maxOverallVal = Math.max(...allVals, 1);
 
                     const subsystems = [
-                      { id: 'LAM_SANG', title: 'Khối Lâm Sàng', icon: '🏥', data: homeTop3FailedStats.LAM_SANG, badgeBg: 'bg-blue-100 text-blue-900 border-blue-200' },
-                      { id: 'PHONG_BAN', title: 'Khối Phòng Ban', icon: '💼', data: homeTop3FailedStats.PHONG_BAN, badgeBg: 'bg-indigo-100 text-indigo-900 border-indigo-200' },
-                      { id: 'CAN_LAM_SANG', title: 'Khối Cận Lâm Sàng', icon: '🧪', data: homeTop3FailedStats.CAN_LAM_SANG, badgeBg: 'bg-teal-100 text-teal-900 border-teal-200' }
+                      { id: 'LAM_SANG', title: 'Khối Lâm Sàng', icon: '🏥', data: homeTop5FailedStats.LAM_SANG, badgeBg: 'bg-blue-100 text-blue-900 border-blue-200' },
+                      { id: 'PHONG_BAN', title: 'Khối Phòng Ban', icon: '💼', data: homeTop5FailedStats.PHONG_BAN, badgeBg: 'bg-indigo-100 text-indigo-900 border-indigo-200' },
+                      { id: 'CAN_LAM_SANG', title: 'Khối Cận Lâm Sàng', icon: '🧪', data: homeTop5FailedStats.CAN_LAM_SANG, badgeBg: 'bg-teal-100 text-teal-900 border-teal-200' }
                     ];
 
                     return (
                       <div className="space-y-4">
                         {/* Single Chart Canvas */}
-                        <div className="bg-slate-50/70 p-6 md:p-8 rounded-3xl border border-slate-200/80 shadow-inner">
-
-                          {/* Baseline Grid & Bars Area with Header Badges at top of each group */}
+                        <div className="bg-slate-50/70 p-4 md:p-6 rounded-3xl border border-slate-200/80 shadow-inner">
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
                             {subsystems.map(sub => (
-                              <div key={sub.id} className="flex flex-col bg-white p-4 md:p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4 min-h-[340px] md:min-h-[400px] justify-between">
+                              <div 
+                                key={sub.id} 
+                                onClick={() => {
+                                  setCurrentModule('MODULE_5S');
+                                  setActiveTab('DASHBOARD');
+                                  setActiveSubDashboard(sub.id);
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                                }}
+                                className="flex flex-col bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md hover:border-blue-300 transition-all space-y-4 min-h-[360px] md:min-h-[420px] justify-between cursor-pointer group"
+                              >
                                 {/* Subsystem Header Badge placed at top of group */}
-                                <div className={`${sub.badgeBg} border rounded-xl py-2.5 px-3 text-center shadow-xs shrink-0`}>
+                                <div className={`${sub.badgeBg} border rounded-xl py-2.5 px-3 text-center shadow-xs shrink-0 flex items-center justify-between group-hover:scale-[1.02] transition-transform`}>
                                   <span className="font-black text-xs md:text-sm uppercase tracking-wider flex items-center justify-center gap-1.5">
                                     <span>{sub.icon}</span> {sub.title}
                                   </span>
+                                  <span className="text-[10px] font-bold underline text-blue-700">Xem báo cáo ➔</span>
                                 </div>
 
                                 {/* Upper Area: Bars sitting 100% flat on the baseline line */}
-                                <div className="flex items-end justify-center gap-2 md:gap-4 h-48 md:h-64 border-b-2 border-slate-300 pb-0 px-2 flex-1 pt-4">
+                                <div className="flex items-end justify-center gap-1.5 md:gap-2 h-48 md:h-64 border-b-2 border-slate-300 pb-0 px-1 flex-1 pt-4">
                                   {sub.data.length > 0 ? (
                                     sub.data.map((item, idx) => {
-                                      const heightPct = Math.max(Math.round((item.value / maxOverallVal) * 100), 16);
-                                      const barColor = idx === 0 ? 'bg-red-500' : idx === 1 ? 'bg-orange-500' : 'bg-amber-400';
-                                      const textColor = idx === 0 ? 'text-red-600' : idx === 1 ? 'text-orange-600' : 'text-amber-600';
+                                      const heightPct = Math.max(Math.round((item.value / maxOverallVal) * 100), 14);
+                                      const barColor = idx === 0 ? 'bg-red-500' : idx === 1 ? 'bg-orange-500' : idx === 2 ? 'bg-amber-400' : idx === 3 ? 'bg-yellow-400' : 'bg-blue-400';
+                                      const textColor = idx === 0 ? 'text-red-600' : idx === 1 ? 'text-orange-600' : idx === 2 ? 'text-amber-600' : idx === 3 ? 'text-yellow-700' : 'text-blue-600';
                                       return (
-                                        <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full group max-w-[80px]">
-                                          <span className={`text-xs md:text-sm font-black ${textColor} mb-2 transition-transform group-hover:scale-110 shrink-0`}>
-                                            {item.value} vị trí
+                                        <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full group/bar max-w-[60px]">
+                                          <span className={`text-[10px] md:text-xs font-black ${textColor} mb-1 transition-transform group-hover/bar:scale-110 shrink-0 text-center leading-tight`}>
+                                            {item.value}
                                           </span>
                                           <div
-                                            className={`w-full ${barColor} rounded-t-xl transition-all duration-300 shadow-md group-hover:brightness-110 group-hover:shadow-lg shrink-0`}
+                                            className={`w-full ${barColor} rounded-t-lg transition-all duration-300 shadow-md group-hover/bar:brightness-110 group-hover/bar:shadow-lg shrink-0`}
                                             style={{ height: `${heightPct}%` }}
                                           ></div>
                                         </div>
@@ -1263,11 +1821,11 @@
                                 </div>
 
                                 {/* Lower Area: Unit Name Labels hanging below the baseline */}
-                                <div className="flex items-start justify-center gap-2 md:gap-4 pt-2.5 min-h-[48px] px-1 shrink-0">
+                                <div className="flex items-start justify-center gap-1.5 md:gap-2 pt-2.5 min-h-[52px] px-1 shrink-0">
                                   {sub.data.length > 0 && (
                                     sub.data.map((item, idx) => (
-                                      <div key={idx} className="flex-1 max-w-[80px] text-center">
-                                        <span className="text-[11px] md:text-xs font-bold text-slate-700 leading-tight line-clamp-2 block" title={item.label}>
+                                      <div key={idx} className="flex-1 max-w-[60px] text-center">
+                                        <span className="text-[10px] md:text-[11px] font-bold text-slate-700 leading-tight line-clamp-3 block" title={item.label}>
                                           {item.label}
                                         </span>
                                       </div>
@@ -1277,7 +1835,6 @@
                               </div>
                             ))}
                           </div>
-
                         </div>
                       </div>
                     );
@@ -1299,37 +1856,106 @@
                 </header>
 
                 <main className="max-w-5xl mx-auto p-3 md:p-4 space-y-4">
-                  <div className="bg-white rounded-xl p-1 grid grid-cols-2 gap-1 border shadow-sm">
-                    <button onClick={() => setActiveTab('EVALUATION')} className={`py-2.5 rounded-lg text-xs font-bold ${activeTab === 'EVALUATION' ? 'bg-blue-600 text-white shadow' : 'text-slate-600'}`}>📋 Đoàn Kiểm Tra</button>
-                    <button onClick={() => setActiveTab('DASHBOARD')} className={`py-2.5 rounded-lg text-xs font-bold ${activeTab === 'DASHBOARD' ? 'bg-blue-600 text-white shadow' : 'text-slate-600'}`}>📊 Báo Cáo Tổng Hợp</button>
+                  <div className={`bg-white rounded-xl p-1 grid gap-1 border shadow-sm ${isAdminLoggedIn ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                    <button onClick={() => setActiveTab('EVALUATION')} className={`py-2.5 rounded-lg text-xs font-bold ${activeTab === 'EVALUATION' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 hover:text-blue-600'}`}>📋 Tạo Phiếu Đánh Giá 5S</button>
+                    <button onClick={() => setActiveTab('DASHBOARD')} className={`py-2.5 rounded-lg text-xs font-bold ${activeTab === 'DASHBOARD' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 hover:text-blue-600'}`}>📊 Báo Cáo Tổng Hợp</button>
+                    {isAdminLoggedIn && (
+                      <button onClick={() => setActiveTab('ASSIGNMENT')} className={`py-2.5 rounded-lg text-xs font-bold ${activeTab === 'ASSIGNMENT' ? 'bg-amber-500 text-white shadow font-black' : 'text-amber-700 bg-amber-50 hover:bg-amber-100 font-bold'}`}>📋 Phân Công Đánh Giá 5S</button>
+                    )}
                   </div>
 
-                  {activeTab === 'EVALUATION' ? (
+                  {activeTab === 'EVALUATION' && (
                     <div className="space-y-4">
-                      <div className="bg-white p-4 rounded-xl border grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="relative" ref={suggestionRef}>
-                          <label className="text-xs font-bold text-slate-500 uppercase">Khoa / Phòng</label>
+                      <div className="bg-white p-4 rounded-xl border grid grid-cols-1 md:grid-cols-3 gap-4 shadow-sm items-start">
+                        {/* 1. Người đánh giá (Xếp trước tiên) */}
+                        <div className="relative">
+                          <div className="flex justify-between items-center mb-0.5 min-h-[20px]">
+                            <label className="text-xs font-black text-slate-700 uppercase">1. Người Đánh Giá</label>
+                            {inspector ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setInspector('');
+                                  setDepartment('');
+                                  setDeptSearch('');
+                                }}
+                                className="text-[10px] text-blue-600 hover:text-red-600 font-extrabold cursor-pointer transition-colors"
+                                title="Bấm để xóa và chọn lại tên cán bộ khác"
+                              >
+                                ✕ Chọn lại tên
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 opacity-0">...</span>
+                            )}
+                          </div>
                           <input
-                            type="text" placeholder="Tìm khoa/phòng..."
-                            className="w-full border-b py-1 text-sm font-semibold outline-none focus:border-blue-600"
-                            value={deptSearch} onChange={e => { setDeptSearch(e.target.value); setDepartment(e.target.value); setShowSuggestions(true); }}
+                            type="text"
+                            list="inspectors-list-5s"
+                            placeholder="Gõ hoặc bấm chọn tên cán bộ..."
+                            className="w-full border-b py-1 text-sm font-semibold text-slate-800 outline-none focus:border-blue-600"
+                            value={inspector}
+                            onChange={e => setInspector(e.target.value)}
+                          />
+                          <datalist id="inspectors-list-5s">
+                            {assignments5S.map((a, i) => (
+                              <option key={i} value={a.inspector} />
+                            ))}
+                          </datalist>
+                        </div>
+
+                        {/* 2. Khoa / Phòng (Xếp thứ hai, tự động đóng khi click ra ngoài) */}
+                        <div className="relative" ref={suggestionRef}>
+                          <div className="flex justify-between items-center mb-0.5 min-h-[20px]">
+                            <label className="text-xs font-black text-slate-700 uppercase">2. Khoa / Phòng</label>
+                            {assignedDeptsForInspector ? (
+                              <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200" title="Danh sách đã tự động lọc theo kế hoạch phân công">
+                                ✨ Đã lọc phân công ({assignedDeptsForInspector.length} đ/vị)
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">Tất cả {DEPARTMENTS.length} đơn vị</span>
+                            )}
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="Gõ để tìm hoặc chọn khoa/phòng..."
+                            className="w-full border-b py-1 text-sm font-semibold text-slate-800 outline-none focus:border-blue-600"
+                            value={deptSearch}
+                            onChange={e => {
+                              setDeptSearch(e.target.value);
+                              setDepartment(e.target.value);
+                              setShowSuggestions(true);
+                            }}
                             onFocus={() => setShowSuggestions(true)}
                           />
                           {showSuggestions && (
-                            <div className="absolute left-0 right-0 top-full mt-1 bg-white border rounded-lg shadow-xl max-h-48 overflow-y-auto z-50">
-                              {filteredDepartments.map((d, i) => (
-                                <button key={i} onClick={() => selectDepartment(d)} className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-blue-50 border-b">{d}</button>
-                              ))}
+                            <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-52 overflow-y-auto z-50">
+                              {filteredDepartments.length > 0 ? (
+                                filteredDepartments.map((d, i) => (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    onClick={() => selectDepartment(d)}
+                                    className="w-full text-left px-3.5 py-2.5 text-xs font-semibold hover:bg-blue-50 border-b border-slate-100 flex justify-between items-center cursor-pointer transition-colors"
+                                  >
+                                    <span className="text-slate-800 font-bold">{d}</span>
+                                    {assignedDeptsForInspector && assignedDeptsForInspector.includes(d) && (
+                                      <span className="text-[9px] text-emerald-700 bg-emerald-100 font-black px-1.5 py-0.5 rounded">✨ Được giao</span>
+                                    )}
+                                  </button>
+                                ))
+                              ) : (
+                                <div className="p-3 text-xs text-slate-400 italic text-center">Không tìm thấy đơn vị phù hợp</div>
+                              )}
                             </div>
                           )}
                         </div>
+
+                        {/* 3. Ngày đánh giá (Căn thẳng hàng chuẩn với ô 1 và ô 2) */}
                         <div>
-                          <label className="text-xs font-bold text-slate-500 uppercase">Người đánh giá</label>
-                          <input type="text" placeholder="Tên cán bộ..." className="w-full border-b py-1 text-sm font-semibold outline-none focus:border-blue-600" value={inspector} onChange={e => setInspector(e.target.value)} />
-                        </div>
-                        <div>
-                          <label className="text-xs font-bold text-slate-500 uppercase">Ngày đánh giá</label>
-                          <input type="date" className="w-full border-b py-1 text-sm font-semibold outline-none focus:border-blue-600" value={date} onChange={e => setDate(e.target.value)} />
+                          <div className="flex justify-between items-center mb-0.5 min-h-[20px]">
+                            <label className="text-xs font-black text-slate-700 uppercase">3. Ngày Đánh Giá</label>
+                          </div>
+                          <input type="date" className="w-full border-b py-1 text-sm font-semibold text-slate-800 outline-none focus:border-blue-600" value={date} onChange={e => setDate(e.target.value)} />
                         </div>
                       </div>
 
@@ -1360,14 +1986,44 @@
                             <div key={r.id} className="border-b last:border-0">
                               <div onClick={() => setExpandedRowId(isExpanded ? null : r.id)} className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-50">
                                 <div className="flex items-center gap-2 font-bold text-sm flex-1 pr-2" onClick={e => e.stopPropagation()}>
-                                  <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs flex items-center justify-center shrink-0">{idx + 1}</span>
-                                  <input
-                                    type="text"
-                                    placeholder="Gõ tên vị trí tùy chỉnh (VD: Xe tiêm 1, Tủ thuốc...)"
-                                    className="w-full bg-slate-100 border border-slate-200 focus:bg-white focus:border-blue-500 rounded px-2.5 py-1 text-xs font-bold outline-none"
-                                    value={r.location}
-                                    onChange={e => updateRow(r.id, 'location', e.target.value)}
-                                  />
+                                  <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs flex items-center justify-center shrink-0 font-black">{idx + 1}</span>
+                                  
+                                  {/* Ô nhập Tên vị trí có nút mũi tên thả dropdown ở CUỐI DÒNG */}
+                                  <div className="relative flex-1 flex items-center">
+                                    <input
+                                      type="text"
+                                      placeholder="Gõ hoặc chọn vị trí đánh giá..."
+                                      className="w-full bg-slate-100 border border-slate-200 focus:bg-white focus:border-blue-500 rounded-lg pl-3 pr-8 py-1.5 text-xs font-bold outline-none text-slate-800"
+                                      value={r.location}
+                                      onChange={e => updateRow(r.id, 'location', e.target.value)}
+                                    />
+                                    
+                                    {/* Nút mũi tên thả dropdown vị trí mẫu ở cuối dòng */}
+                                    <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center">
+                                      <select
+                                        onChange={(e) => {
+                                          if (e.target.value) {
+                                            updateRow(r.id, 'location', e.target.value);
+                                            e.target.value = "";
+                                          }
+                                        }}
+                                        className="w-6 h-6 opacity-0 absolute inset-0 cursor-pointer z-10"
+                                        title="Bấm chọn danh sách vị trí mẫu gợi ý"
+                                      >
+                                        <option value="">💡 Chọn vị trí mẫu ({currentSubsystem === 'PHONG_BAN' ? 'Phòng Ban' : currentSubsystem === 'CAN_LAM_SANG' ? 'Cận Lâm Sàng' : 'Lâm Sàng'})...</option>
+                                        {availableSampleLocations.map((loc, i) => (
+                                          <option key={i} value={loc}>{loc}</option>
+                                        ))}
+                                      </select>
+                                      <button 
+                                        type="button"
+                                        className="w-6 h-6 rounded-md hover:bg-slate-200 text-slate-500 flex items-center justify-center text-[10px] font-black transition-colors"
+                                        title="Bấm chọn vị trí mẫu gợi ý"
+                                      >
+                                        ▼
+                                      </button>
+                                    </div>
+                                  </div>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isPassed ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
@@ -1394,11 +2050,10 @@
                                       <textarea className="w-full h-24 p-2 text-xs border rounded-lg" placeholder="Ghi chú lỗi..." value={r.note || ''} onChange={e => updateRow(r.id, 'note', e.target.value)} />
                                       <div className="flex justify-between items-center">
                                         <label className="px-3 py-1.5 bg-blue-50 text-blue-700 font-bold text-xs rounded-lg cursor-pointer">
-                                          📷 Chụp/Tải ảnh
-                                          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleImageChange(r.id, e)} />
+                                          📷 {r.image ? 'Đổi ảnh lỗi' : 'Tải ảnh minh họa'}
+                                          <input type="file" accept="image/*" className="hidden" onChange={e => handleImageChange(r.id, e)} />
                                         </label>
-                                        {r.image && <span className="text-xs text-emerald-600 font-bold">Đã nén ({r.imageKb || 0}KB)</span>}
-                                        <button onClick={e => removeRow(r.id, e)} className="text-xs font-bold text-red-600">Xóa vị trí</button>
+                                        {r.image && <span className="text-[10px] text-emerald-600 font-bold">✓ Đã đính kèm</span>}
                                       </div>
                                     </div>
                                   </div>
@@ -1411,10 +2066,10 @@
 
                       <div className="pt-2 flex flex-col sm:flex-row gap-3">
                         <button 
-                          onClick={addRow} 
-                          className="flex-1 py-3 px-4 bg-white border-2 border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 rounded-2xl font-extrabold text-xs transition-colors shadow-xs"
+                          onClick={() => addRow()} 
+                          className="flex-1 py-3.5 px-4 bg-white border-2 border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 rounded-2xl font-extrabold text-xs transition-colors shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                         >
-                          + Thêm vị trí mới
+                          <span>➕</span> Thêm vị trí mới
                         </button>
                         <button 
                           onClick={saveReport} 
@@ -1425,8 +2080,9 @@
                         </button>
                       </div>
                     </div>
-                  ) : (
-                    /* Dashboard 5S ĐẦY ĐỦ 3 PHẦN */
+                  )}
+
+                  {activeTab === 'DASHBOARD' && (
                     <div className="space-y-6">
                       {/* 🗓️ MONTH SELECTOR & FILTER BAR IN MODULE 5S */}
                       <div className="bg-white p-3.5 px-5 rounded-2xl border shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
@@ -1445,13 +2101,23 @@
                             ))}
                           </select>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button onClick={handleExportData} className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-bold rounded-xl flex items-center gap-1 transition-colors">
-                            📥 Xuất File Sao Lưu (JSON)
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button 
+                            onClick={() => setPrintSubsystemModal(activeSubDashboard)} 
+                            className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black rounded-xl flex items-center gap-1.5 shadow-md transition-all scale-100 hover:scale-[1.02]"
+                          >
+                            🖨️ Xuất Báo Cáo PDF ({activeSubDashboard === 'LAM_SANG' ? 'Khối Lâm Sàng' : activeSubDashboard === 'PHONG_BAN' ? 'Khối Phòng Ban' : 'Khối Cận Lâm Sàng'})
                           </button>
-                          <button onClick={() => setShowSettings(true)} className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 font-bold rounded-xl flex items-center gap-1 transition-colors">
-                            ⚙️ Cài Đặt Cloud
-                          </button>
+                          {isAdminLoggedIn && (
+                            <>
+                              <button onClick={handleExportData} className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-bold rounded-xl flex items-center gap-1 transition-colors">
+                                📥 Xuất File Sao Lưu (JSON)
+                              </button>
+                              <button onClick={() => setShowSettings(true)} className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 font-bold rounded-xl flex items-center gap-1 transition-colors">
+                                ⚙️ Cài Đặt Cloud
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -1502,16 +2168,8 @@
                           <div className="bg-white p-4 rounded-xl border shadow-sm space-y-3">
                             <h3 className="font-extrabold text-sm uppercase text-slate-800">🍩 5 vị trí không đạt 5S nhiều nhất</h3>
                             <div className="flex flex-col sm:flex-row items-center gap-6">
-                              <div className="relative shrink-0 flex items-center justify-center">
-                                <div
-                                  className="w-36 h-36 rounded-full shadow-md flex items-center justify-center"
-                                  style={{ background: generateConicGradient(currentStats.failedLocations) }}
-                                >
-                                  <div className="w-20 h-20 bg-white rounded-full flex flex-col items-center justify-center text-center">
-                                    <span className="text-[9px] font-bold text-slate-400">VỊ TRÍ LỖI</span>
-                                    <span className="text-lg font-black text-slate-800">{currentStats.totalFailedLocations}</span>
-                                  </div>
-                                </div>
+                              <div className="shrink-0 flex items-center justify-center">
+                                {renderSVGDoughnutChart(currentStats.failedLocations, currentStats.totalFailedLocations, 'VỊ TRÍ LỖI')}
                               </div>
                               <div className="space-y-1.5 flex-1 w-full text-xs">
                                 {currentStats.failedLocations.length > 0 ? (
@@ -1534,16 +2192,8 @@
                         <div className="bg-white p-4 rounded-xl border shadow-sm space-y-3">
                           <h3 className="font-extrabold text-sm uppercase text-slate-800">🍩 Tỷ lệ % các loại lỗi S (S1 - S5)</h3>
                           <div className="flex flex-col sm:flex-row items-center gap-6">
-                            <div className="relative shrink-0 flex items-center justify-center">
-                              <div
-                                className="w-36 h-36 rounded-full shadow-md flex items-center justify-center"
-                                style={{ background: generateConicGradient(currentStats.sFailures) }}
-                              >
-                                <div className="w-20 h-20 bg-white rounded-full flex flex-col items-center justify-center text-center">
-                                  <span className="text-[9px] font-bold text-slate-400">TỔNG LỖI S</span>
-                                  <span className="text-lg font-black text-slate-800">{currentStats.totalSFailures}</span>
-                                </div>
-                              </div>
+                            <div className="shrink-0 flex items-center justify-center">
+                              {renderSVGDoughnutChart(currentStats.sFailures, currentStats.totalSFailures, 'TỔNG LỖI S')}
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1 w-full text-xs">
                               {currentStats.sFailures.map((s, idx) => (
@@ -1620,6 +2270,151 @@
                         </div>
                       </div>
 
+                    </div>
+                  )}
+
+                  {/* TAB 3: PHÂN CÔNG ĐÁNH GIÁ 5S (CHỈ ADMIN) */}
+                  {activeTab === 'ASSIGNMENT' && isAdminLoggedIn && (
+                    <div className="space-y-6 max-w-5xl mx-auto pb-6">
+                      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                          <span className="bg-amber-400 text-blue-950 px-3 py-1 rounded-full text-xs font-black uppercase">
+                            🔑 Quyền Quản Trị Viên (Admin)
+                          </span>
+                          <h2 className="text-xl md:text-2xl font-black uppercase mt-2">Kế Hoạch Phân Công Đánh Giá 5S</h2>
+                          <p className="text-xs text-blue-200 mt-1">
+                            Gán đơn vị kiểm tra cho từng Cán bộ đánh giá. Khi cán bộ chọn tên mình trên app, danh sách Khoa/Phòng sẽ tự động lọc đúng theo phân công.
+                          </p>
+                        </div>
+                        
+                        <button
+                          onClick={() => handleSaveAssignmentsToCloud(assignments5S)}
+                          className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-5 py-3 rounded-2xl text-xs uppercase transition-all shadow-lg flex items-center justify-center gap-2 shrink-0 border border-emerald-300 cursor-pointer"
+                        >
+                          💾 LƯU KẾ HOẠCH PHÂN CÔNG
+                        </button>
+                      </div>
+
+                      {/* Form Thêm Người Đánh Giá Mới */}
+                      <div className="bg-white p-5 rounded-3xl border border-blue-100 shadow-xs space-y-4">
+                        <h3 className="font-black text-sm uppercase text-slate-900 flex items-center gap-2 border-b pb-3">
+                          <span>👤 Thêm Người Đánh Giá Mới</span>
+                        </h3>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <input
+                            type="text"
+                            placeholder="Nhập tên cán bộ đánh giá (Ví dụ: Nguyễn Văn A)..."
+                            value={newInspectorName}
+                            onChange={e => setNewInspectorName(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') handleAddInspector();
+                            }}
+                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-bold focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                          />
+                          <button
+                            onClick={handleAddInspector}
+                            className="bg-blue-900 hover:bg-blue-800 text-white font-black px-5 py-2.5 rounded-xl text-xs uppercase shadow flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                          >
+                            ➕ THÊM NGƯỜI ĐÁNH GIÁ
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Danh sách phân công */}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center px-1">
+                          <h3 className="font-black text-sm uppercase text-slate-800">
+                            📋 Danh Sách Phân Công Hiện Tại ({assignments5S.length} Cán bộ)
+                          </h3>
+                          <span className="text-xs text-slate-500 italic">Tự động đồng bộ trên Đám mây Cloud Firebase</span>
+                        </div>
+
+                        {assignments5S.length === 0 ? (
+                          <div className="bg-white p-8 rounded-3xl border text-center space-y-2 text-slate-400">
+                            <p className="text-base font-bold">Chưa có kế hoạch phân công đánh giá nào.</p>
+                            <p className="text-xs">Hãy nhập tên Cán bộ đánh giá ở trên để bắt đầu phân công.</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-4">
+                            {assignments5S.map((item, idx) => (
+                              <div key={item.id || idx} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4 hover:border-blue-300 transition-all">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-900 flex items-center justify-center font-black text-sm">
+                                      {idx + 1}
+                                    </div>
+                                    <div>
+                                      <h4 className="font-black text-base text-slate-900 flex items-center gap-2">
+                                        <span>👤 {item.inspector}</span>
+                                        <span className="bg-blue-50 text-blue-800 border border-blue-200 text-[10px] px-2 py-0.5 rounded-full font-extrabold">
+                                          {item.departments ? item.departments.length : 0} đơn vị
+                                        </span>
+                                      </h4>
+                                      <p className="text-xs text-slate-500">Được phân công kiểm tra đánh giá 5S</p>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    onClick={() => handleRemoveInspector(item.id, item.inspector)}
+                                    className="text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border border-red-200 flex items-center gap-1 self-start sm:self-center cursor-pointer"
+                                  >
+                                    🗑️ Xóa Cán Bộ
+                                  </button>
+                                </div>
+
+                                {/* Phân công đơn vị đánh giá */}
+                                <div className="space-y-3">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                    <label className="text-xs font-black text-slate-700 uppercase">
+                                      🏥 Các Đơn Vị Được Phân Công Cho {item.inspector}:
+                                    </label>
+
+                                    <select
+                                      onChange={(e) => {
+                                        if (e.target.value) {
+                                          handleAddDeptToInspector(item.id, item.inspector, e.target.value);
+                                          e.target.value = "";
+                                        }
+                                      }}
+                                      className="px-3 py-1.5 rounded-xl border border-blue-300 text-xs font-bold text-blue-900 bg-blue-50/50 focus:outline-none focus:ring-2 focus:ring-blue-200 cursor-pointer"
+                                    >
+                                      <option value="">➕ Chọn Thêm Đơn Vị Đánh Giá...</option>
+                                      {DEPARTMENTS.filter(d => !item.departments.includes(d)).map((d, i) => (
+                                        <option key={i} value={d}>{d}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  {/* Danh sách Badges đơn vị */}
+                                  {item.departments && item.departments.length > 0 ? (
+                                    <div className="flex flex-wrap gap-2 pt-1">
+                                      {item.departments.map((deptName, dIdx) => (
+                                        <span
+                                          key={dIdx}
+                                          className="bg-slate-100 border border-slate-300 hover:border-red-300 hover:bg-red-50 text-slate-800 text-xs px-3 py-1.5 rounded-xl font-bold flex items-center gap-2 group transition-all"
+                                        >
+                                          <span>🏢 {deptName}</span>
+                                          <button
+                                            onClick={() => handleRemoveDeptFromInspector(item.id, item.inspector, deptName)}
+                                            className="text-slate-400 group-hover:text-red-600 font-black text-xs hover:scale-125 transition-all cursor-pointer"
+                                            title="Gỡ đơn vị này"
+                                          >
+                                            ✕
+                                          </button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-amber-600 italic bg-amber-50 p-3 rounded-xl border border-amber-200">
+                                      ⚠️ Chưa phân công đơn vị nào cho {item.inspector}. Hãy chọn đơn vị từ menu thả xuống ở trên.
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </main>

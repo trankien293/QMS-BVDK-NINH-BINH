@@ -112,8 +112,8 @@ const DEPT_SYSTEM_MAP = {
   "Phòng Quản lý chất lượng Bệnh viện": "PHONG_BAN",
   "Trung tâm Đào tạo chỉ đạo tuyến": "PHONG_BAN",
   "Khoa Huyết học truyền máu": "CAN_LAM_SANG",
-  "Khoa khám bệnh và điều trị yêu cầu": "LAM_SANG",
-  "Khoa Khám bệnh": "LAM_SANG",
+  "Khoa khám bệnh và điều trị yêu cầu": "CAN_LAM_SANG",
+  "Khoa Khám bệnh": "CAN_LAM_SANG",
   "Khoa Giải phẫu bệnh": "CAN_LAM_SANG",
   "Khoa Thăm dò chức năng": "CAN_LAM_SANG",
   "Khoa Kiểm soát nhiễm khuẩn": "CAN_LAM_SANG",
@@ -581,9 +581,9 @@ export default function App() {
     };
   }, [hospitalDatabase]);
 
-  // Thống kê Top 3 đv lỗi 5S của từng phân hệ cho Trang chủ
-  const homeTop3FailedStats = useMemo(() => {
-    const getTop3 = (systemCode) => {
+  // Thống kê Top 5 đv lỗi 5S của từng phân hệ cho Trang chủ
+  const homeTop5FailedStats = useMemo(() => {
+    const getTop5 = (systemCode) => {
       const evals = hospitalDatabase.filter(e => e.system === systemCode);
       const map = {};
       evals.forEach(ev => {
@@ -600,13 +600,13 @@ export default function App() {
       return Object.entries(map)
         .map(([dept, value]) => ({ label: dept, value }))
         .sort((a, b) => b.value - a.value)
-        .slice(0, 3);
+        .slice(0, 5);
     };
 
     return {
-      LAM_SANG: getTop3('LAM_SANG'),
-      PHONG_BAN: getTop3('PHONG_BAN'),
-      CAN_LAM_SANG: getTop3('CAN_LAM_SANG')
+      LAM_SANG: getTop5('LAM_SANG'),
+      PHONG_BAN: getTop5('PHONG_BAN'),
+      CAN_LAM_SANG: getTop5('CAN_LAM_SANG')
     };
   }, [hospitalDatabase]);
 
@@ -884,28 +884,41 @@ export default function App() {
               </div>
             </section>
 
-            {/* BÁO CÁO CỘT TỔNG HỢP TOP 3 ĐƠN VỊ LỖI CỦA 3 PHÂN HỆ */}
+            {/* BÁO CÁO CỘT TỔNG HỢP TOP 5 ĐƠN VỊ LỖI CỦA 3 PHÂN HỆ */}
             <section className="bg-white rounded-3xl border border-blue-100 shadow-sm p-6 space-y-6">
               <div>
                 <h3 className="font-black text-base md:text-lg text-slate-900 uppercase flex items-center gap-2">
-                  <BarChart3 size={22} className="text-blue-600" /> Biểu đồ cột: 3 Đơn vị có nhiều vị trí không đạt 5S nhất theo từng phân hệ
+                  <BarChart3 size={22} className="text-blue-600" /> Biểu đồ cột: 5 Đơn vị có nhiều vị trí không đạt 5S nhất theo từng phân hệ
                 </h3>
                 <p className="text-xs text-slate-500 italic mt-0.5">
-                  Thống kê nhanh Top 3 khoa/phòng/trung tâm cần chấn chỉnh công tác 5S ở khối Lâm sàng, Khối Phòng ban và Khối Cận lâm sàng.
+                  Thống kê nhanh Top 5 khoa/phòng/trung tâm cần chấn chỉnh công tác 5S ở khối Lâm sàng, Khối Phòng ban và Khối Cận lâm sàng. Bấm vào từng phân hệ để chuyển tới Báo cáo tổng hợp chi tiết.
                 </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* 1. KHỐI LÂM SÀNG */}
-                <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100 space-y-3">
-                  <div className="flex items-center gap-2 font-extrabold text-xs text-blue-900 uppercase pb-2 border-b border-blue-200">
-                    <Stethoscope size={16} className="text-blue-600" /> Khối Lâm Sàng
+                <div 
+                  onClick={() => {
+                    setCurrentModule('MODULE_5S');
+                    setActiveTab('DASHBOARD');
+                    setActiveSubDashboard('LAM_SANG');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="bg-blue-50/50 hover:bg-blue-50 rounded-2xl p-4 border border-blue-100 hover:border-blue-300 shadow-xs hover:shadow-md transition-all cursor-pointer space-y-3 group"
+                >
+                  <div className="flex items-center justify-between font-extrabold text-xs text-blue-900 uppercase pb-2 border-b border-blue-200">
+                    <div className="flex items-center gap-2">
+                      <Stethoscope size={16} className="text-blue-600" /> Khối Lâm Sàng
+                    </div>
+                    <span className="text-[10px] font-bold text-blue-600 group-hover:underline flex items-center gap-0.5">
+                      Báo cáo <ArrowRight size={12} />
+                    </span>
                   </div>
 
-                  <div className="space-y-3">
-                    {homeTop3FailedStats.LAM_SANG.length > 0 ? (
-                      homeTop3FailedStats.LAM_SANG.map((item, idx) => {
-                        const maxVal = Math.max(...homeTop3FailedStats.LAM_SANG.map(x => x.value), 1);
+                  <div className="space-y-2.5">
+                    {homeTop5FailedStats.LAM_SANG.length > 0 ? (
+                      homeTop5FailedStats.LAM_SANG.map((item, idx) => {
+                        const maxVal = Math.max(...homeTop5FailedStats.LAM_SANG.map(x => x.value), 1);
                         const pct = ((item.value / maxVal) * 100).toFixed(0);
                         return (
                           <div key={idx} className="space-y-1">
@@ -913,7 +926,7 @@ export default function App() {
                               <span className="text-slate-800 truncate max-w-[170px]">{idx + 1}. {item.label}</span>
                               <span className="text-red-600 font-mono font-black">{item.value} lỗi</span>
                             </div>
-                            <div className="w-full h-3.5 bg-slate-200 rounded-full overflow-hidden">
+                            <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
                               <div className="h-full bg-gradient-to-r from-blue-600 to-blue-400 rounded-full" style={{ width: `${pct}%` }} />
                             </div>
                           </div>
@@ -926,15 +939,28 @@ export default function App() {
                 </div>
 
                 {/* 2. KHỐI PHÒNG BAN */}
-                <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100 space-y-3">
-                  <div className="flex items-center gap-2 font-extrabold text-xs text-blue-900 uppercase pb-2 border-b border-blue-200">
-                    <Briefcase size={16} className="text-blue-700" /> Khối Phòng Ban
+                <div 
+                  onClick={() => {
+                    setCurrentModule('MODULE_5S');
+                    setActiveTab('DASHBOARD');
+                    setActiveSubDashboard('PHONG_BAN');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="bg-blue-50/50 hover:bg-blue-50 rounded-2xl p-4 border border-blue-100 hover:border-indigo-300 shadow-xs hover:shadow-md transition-all cursor-pointer space-y-3 group"
+                >
+                  <div className="flex items-center justify-between font-extrabold text-xs text-blue-900 uppercase pb-2 border-b border-blue-200">
+                    <div className="flex items-center gap-2">
+                      <Briefcase size={16} className="text-blue-700" /> Khối Phòng Ban
+                    </div>
+                    <span className="text-[10px] font-bold text-indigo-600 group-hover:underline flex items-center gap-0.5">
+                      Báo cáo <ArrowRight size={12} />
+                    </span>
                   </div>
 
-                  <div className="space-y-3">
-                    {homeTop3FailedStats.PHONG_BAN.length > 0 ? (
-                      homeTop3FailedStats.PHONG_BAN.map((item, idx) => {
-                        const maxVal = Math.max(...homeTop3FailedStats.PHONG_BAN.map(x => x.value), 1);
+                  <div className="space-y-2.5">
+                    {homeTop5FailedStats.PHONG_BAN.length > 0 ? (
+                      homeTop5FailedStats.PHONG_BAN.map((item, idx) => {
+                        const maxVal = Math.max(...homeTop5FailedStats.PHONG_BAN.map(x => x.value), 1);
                         const pct = ((item.value / maxVal) * 100).toFixed(0);
                         return (
                           <div key={idx} className="space-y-1">
@@ -942,7 +968,7 @@ export default function App() {
                               <span className="text-slate-800 truncate max-w-[170px]">{idx + 1}. {item.label}</span>
                               <span className="text-red-600 font-mono font-black">{item.value} lỗi</span>
                             </div>
-                            <div className="w-full h-3.5 bg-slate-200 rounded-full overflow-hidden">
+                            <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
                               <div className="h-full bg-gradient-to-r from-blue-600 to-indigo-500 rounded-full" style={{ width: `${pct}%` }} />
                             </div>
                           </div>
@@ -955,15 +981,28 @@ export default function App() {
                 </div>
 
                 {/* 3. KHỐI CẬN LÂM SÀNG */}
-                <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100 space-y-3">
-                  <div className="flex items-center gap-2 font-extrabold text-xs text-blue-900 uppercase pb-2 border-b border-blue-200">
-                    <FlaskConical size={16} className="text-blue-600" /> Khối Cận Lâm Sàng
+                <div 
+                  onClick={() => {
+                    setCurrentModule('MODULE_5S');
+                    setActiveTab('DASHBOARD');
+                    setActiveSubDashboard('CAN_LAM_SANG');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="bg-blue-50/50 hover:bg-blue-50 rounded-2xl p-4 border border-blue-100 hover:border-teal-300 shadow-xs hover:shadow-md transition-all cursor-pointer space-y-3 group"
+                >
+                  <div className="flex items-center justify-between font-extrabold text-xs text-blue-900 uppercase pb-2 border-b border-blue-200">
+                    <div className="flex items-center gap-2">
+                      <FlaskConical size={16} className="text-blue-600" /> Khối Cận Lâm Sàng
+                    </div>
+                    <span className="text-[10px] font-bold text-teal-600 group-hover:underline flex items-center gap-0.5">
+                      Báo cáo <ArrowRight size={12} />
+                    </span>
                   </div>
 
-                  <div className="space-y-3">
-                    {homeTop3FailedStats.CAN_LAM_SANG.length > 0 ? (
-                      homeTop3FailedStats.CAN_LAM_SANG.map((item, idx) => {
-                        const maxVal = Math.max(...homeTop3FailedStats.CAN_LAM_SANG.map(x => x.value), 1);
+                  <div className="space-y-2.5">
+                    {homeTop5FailedStats.CAN_LAM_SANG.length > 0 ? (
+                      homeTop5FailedStats.CAN_LAM_SANG.map((item, idx) => {
+                        const maxVal = Math.max(...homeTop5FailedStats.CAN_LAM_SANG.map(x => x.value), 1);
                         const pct = ((item.value / maxVal) * 100).toFixed(0);
                         return (
                           <div key={idx} className="space-y-1">
@@ -971,7 +1010,7 @@ export default function App() {
                               <span className="text-slate-800 truncate max-w-[170px]">{idx + 1}. {item.label}</span>
                               <span className="text-red-600 font-mono font-black">{item.value} lỗi</span>
                             </div>
-                            <div className="w-full h-3.5 bg-slate-200 rounded-full overflow-hidden">
+                            <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
                               <div className="h-full bg-gradient-to-r from-blue-600 to-teal-500 rounded-full" style={{ width: `${pct}%` }} />
                             </div>
                           </div>
