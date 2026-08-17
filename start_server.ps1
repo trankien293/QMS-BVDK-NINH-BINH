@@ -5,6 +5,7 @@ $listener.Prefixes.Add("http://localhost:5000/")
 $listener.Prefixes.Add("http://127.0.0.1:5000/")
 
 # Try adding wildcard or local IP prefix if permitted
+$listener.Prefixes.Add("http://10.10.192.107:5000/")
 try {
     $ipList = [System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) | Where-Object { $_.AddressFamily -eq 'InterNetwork' }
     foreach ($ip in $ipList) {

@@ -48,6 +48,7 @@ import {
   getDb 
 } from './firebase';
 import { compressImage } from './utils/imageCompressor';
+import { getNormalizedLocationCategory, getRowImages } from './utils/locationNormalizer';
 
 // Danh sách 47 khoa/phòng/trung tâm Bệnh viện Đa khoa tỉnh Ninh Bình
 const DEPARTMENTS = [
@@ -298,7 +299,7 @@ export default function App() {
     if (db) {
       setIsFirebaseConnected(true);
       const unsubscribe = subscribeEvaluations((cloudData) => {
-        if (cloudData && cloudData.length > 0) {
+        if (Array.isArray(cloudData)) {
           setHospitalDatabase(cloudData);
         }
       }, (err) => {
@@ -367,20 +368,43 @@ export default function App() {
     }));
   };
 
-  const handleImageChange = async (rowId, e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handleAddImages = async (rowId, e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
 
     setIsCompressing(prev => ({ ...prev, [rowId]: true }));
     try {
-      const { dataUrl, sizeKb } = await compressImage(file, 1024, 0.75);
-      updateRow(rowId, 'image', dataUrl);
-      updateRow(rowId, 'imageKb', sizeKb);
+      const newImages = [];
+      let totalKb = 0;
+      for (const file of files) {
+        const { dataUrl, sizeKb } = await compressImage(file, 1024, 0.75);
+        newImages.push(dataUrl);
+        totalKb += (sizeKb || 0);
+      }
+      setRows(prev => prev.map(r => {
+        if (r.id === rowId) {
+          const existing = getRowImages(r);
+          const combined = [...existing, ...newImages].slice(0, 3);
+          return { ...r, images: combined, image: combined[0] || null, imageKb: totalKb };
+        }
+        return r;
+      }));
     } catch (err) {
       alert("Lỗi nén ảnh: " + err.message);
     } finally {
       setIsCompressing(prev => ({ ...prev, [rowId]: false }));
     }
+  };
+
+  const handleDeleteImage = (rowId, imgIdx) => {
+    setRows(prev => prev.map(r => {
+      if (r.id === rowId) {
+        const existing = getRowImages(r);
+        const updated = existing.filter((_, idx) => idx !== imgIdx);
+        return { ...r, images: updated, image: updated[0] || null };
+      }
+      return r;
+    }));
   };
 
   const activeStats = useMemo(() => {
@@ -525,7 +549,7 @@ export default function App() {
         ev.rows.forEach(r => {
           const ok = r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false;
           if (!ok) {
-            const normalized = r.location.trim();
+            const normalized = getNormalizedLocationCategory(r.location);
             locationFailureMap[normalized] = (locationFailureMap[normalized] || 0) + 1;
             totalFailedLocations++;
           }
@@ -619,18 +643,19 @@ export default function App() {
     hospitalDatabase.forEach(ev => {
       if (ev.system === activeSubDashboard && top5UnitNames.includes(ev.department)) {
         ev.rows.forEach(r => {
-          if (r.image) {
+          const imgs = getRowImages(r);
+          imgs.forEach(img => {
             const isPassed = r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false;
             result.push({
               department: ev.department,
               inspector: ev.inspector,
               date: ev.date,
               location: r.location,
-              image: r.image,
+              image: img,
               note: r.note || "Chưa có ghi chú",
               isPassed
             });
-          }
+          });
         });
       }
     });
@@ -1238,12 +1263,13 @@ export default function App() {
                                   </div>
                                 </td>
                                 <td className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
-                                  {row.image ? (
-                                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg border border-slate-200 overflow-hidden bg-slate-100 shadow-sm relative group cursor-pointer" onClick={() => setViewImageModal({ image: row.image, location: row.location, department, inspector, note: row.note })}>
-                                      <img src={row.image} alt="Bằng chứng" className="w-full h-full object-cover" />
-                                      {row.imageKb && (
-                                        <span className="absolute bottom-0 right-0 bg-black/60 text-white text-[9px] px-1 font-mono">{row.imageKb}KB</span>
-                                      )}
+                                  {getRowImages(row).length > 0 ? (
+                                    <div className="flex items-center justify-center -space-x-2 overflow-hidden">
+                                      {getRowImages(row).map((imgUrl, imgIdx) => (
+                                        <div key={imgIdx} className="inline-flex items-center justify-center w-10 h-10 rounded-lg border-2 border-white overflow-hidden bg-slate-100 shadow-sm relative group cursor-pointer" onClick={() => setViewImageModal({ image: imgUrl, location: row.location, department, inspector, note: row.note })}>
+                                          <img src={imgUrl} alt={`Ảnh ${imgIdx + 1}`} className="w-full h-full object-cover" />
+                                        </div>
+                                      ))}
                                     </div>
                                   ) : (
                                     <span className="text-xs text-slate-400 italic">Không có ảnh</span>
@@ -1329,29 +1355,6 @@ export default function App() {
 
                                       <div className="space-y-3 flex flex-col justify-between">
                                         <div className="space-y-2">
-                                          <h4 className="font-bold text-xs text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                                            <Camera size={14} className="text-blue-600" /> Hình ảnh bằng chứng (Tự nén)
-                                          </h4>
-                                          <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center hover:border-blue-400 transition-colors relative bg-slate-50/50 min-h-[120px] flex flex-col items-center justify-center">
-                                            {isCompressing[row.id] ? (
-                                              <div className="flex flex-col items-center gap-1 text-blue-600 text-xs font-bold">
-                                                <Loader2 size={24} className="animate-spin" />
-                                                <span>Đang nén ảnh...</span>
-                                              </div>
-                                            ) : row.image ? (
-                                              <div className="relative group w-full h-32">
-                                                <img src={row.image} alt="Bằng chứng" className="w-full h-full object-cover rounded-lg shadow-sm" />
-                                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2">
-                                                  <button 
-                                                    onClick={() => setViewImageModal({ image: row.image, location: row.location, department, inspector, note: row.note })}
-                                                    className="p-2 bg-white rounded-full text-slate-700 hover:bg-slate-100"
-                                                  >
-                                                    <Eye size={16} />
-                                                  </button>
-                                                  <button 
-                                                    onClick={() => updateRow(row.id, 'image', null)}
-                                                    className="p-2 bg-red-600 rounded-full text-white hover:bg-red-700"
-                                                  >
                                                     <Trash2 size={16} />
                                                   </button>
                                                 </div>

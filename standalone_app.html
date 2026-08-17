@@ -378,6 +378,86 @@
       appId: "1:760698304672:web:4cc6dfa5c7b7ae966ff1c5"
     };
 
+    const removeVietnameseTones = (str) => {
+      if (!str) return '';
+      str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
+      str = str.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, "e");
+      str = str.replace(/ì|í|ị|ỉ|ĩ/g, "i");
+      str = str.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, "o");
+      str = str.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, "u");
+      str = str.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, "y");
+      str = str.replace(/đ/g, "d");
+      str = str.replace(/À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ/g, "A");
+      str = str.replace(/È|É|Ẹ|Ẻ|Ẽ|Ê|Ề|Ế|Ệ|Ể|Ễ/g, "E");
+      str = str.replace(/Ì|Í|Ị|Ỉ|Ĩ/g, "I");
+      str = str.replace(/Ò|Ó|Ọ|Ỏ|Õ|Ô|Ồ|Ố|Ộ|Ổ|Ỗ|Ơ|Ờ|Ớ|Ợ|Ở|Ỡ/g, "O");
+      str = str.replace(/Ù|Ú|Ụ|Ủ|Ũ|Ư|Ừ|Ứ|Ự|Ử|Ữ/g, "U");
+      str = str.replace(/Ỳ|Ý|Ỵ|Ỷ|Ỹ/g, "Y");
+      str = str.replace(/Đ/g, "D");
+      return str;
+    };
+
+    const getNormalizedLocationCategory = (rawName) => {
+      if (!rawName || typeof rawName !== 'string') return 'Vị trí khác';
+      const cleanStr = removeVietnameseTones(rawName.trim().toLowerCase())
+        .replace(/\(.*?\)/g, '')
+        .replace(/so\s*\d+/g, '')
+        .replace(/\b\d+\b/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (cleanStr.includes('tu tai lieu') || cleanStr.includes('tu ho so')) {
+        return 'Tủ tài liệu';
+      }
+      if (cleanStr.includes('xe tiem')) {
+        return 'Xe tiêm';
+      }
+      if (cleanStr.includes('tu thuoc')) {
+        return 'Tủ thuốc';
+      }
+      if (cleanStr.includes('ban giao ban') || cleanStr.includes('giao ban')) {
+        return 'Bàn giao ban';
+      }
+      if (cleanStr.includes('ban lam viec')) {
+        return 'Bàn làm việc';
+      }
+      if (cleanStr.includes('kho vat tu')) {
+        return 'Kho vật tư';
+      }
+      if (cleanStr.includes('tu vat tu')) {
+        return 'Tủ vật tư';
+      }
+      if (cleanStr.includes('phong sinh')) {
+        return 'Phòng sinh';
+      }
+      if (cleanStr.includes('ban kham')) {
+        return 'Bàn khám bệnh';
+      }
+      if (cleanStr.includes('phong kham')) {
+        return 'Phòng khám bệnh';
+      }
+      if (cleanStr.includes('kho thiet bi')) {
+        return 'Kho thiết bị';
+      }
+      if (cleanStr.includes('tu thiet bi')) {
+        return 'Tủ thiết bị';
+      }
+      if (!cleanStr) return 'Vị trí khác';
+      const words = cleanStr.split(' ');
+      return words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    };
+
+    const getRowImages = (row) => {
+      if (!row) return [];
+      if (Array.isArray(row.images) && row.images.length > 0) {
+        return row.images.filter(Boolean);
+      }
+      if (row.image) {
+        return [row.image];
+      }
+      return [];
+    };
+
     function App() {
       // Navigation State (Default = HOME)
       const [currentModule, setCurrentModule] = useState('HOME');
@@ -580,7 +660,7 @@
             const unsubscribeEval = db.collection('evaluations_5s').orderBy('createdAt', 'desc').onSnapshot((snapshot) => {
               const list = [];
               snapshot.forEach(docSnap => list.push({ id: docSnap.id, ...docSnap.data() }));
-              if (list.length > 0) setHospitalDatabase(list);
+              setHospitalDatabase(list);
             }, (err) => {
               console.warn("Chưa đọc được dữ liệu Cloud:", err);
             });
@@ -744,14 +824,35 @@
         }));
       };
 
-      const handleImageChange = async (rowId, e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+      const handleAddImages = async (rowId, e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
         try {
-          const { dataUrl, sizeKb } = await compressImage(file, 1024, 0.75);
-          updateRow(rowId, 'image', dataUrl);
-          updateRow(rowId, 'imageKb', sizeKb);
+          const newImages = [];
+          for (const file of files) {
+            const { dataUrl } = await compressImage(file, 1024, 0.75);
+            newImages.push(dataUrl);
+          }
+          setRows(prev => prev.map(r => {
+            if (r.id === rowId) {
+              const existing = getRowImages(r);
+              const combined = [...existing, ...newImages].slice(0, 3);
+              return { ...r, images: combined, image: combined[0] || null };
+            }
+            return r;
+          }));
         } catch (err) { alert("Lỗi nén ảnh: " + err.message); }
+      };
+
+      const handleDeleteImage = (rowId, imgIdx) => {
+        setRows(prev => prev.map(r => {
+          if (r.id === rowId) {
+            const existing = getRowImages(r);
+            const updated = existing.filter((_, idx) => idx !== imgIdx);
+            return { ...r, images: updated, image: updated[0] || null };
+          }
+          return r;
+        }));
       };
 
       const activeStats = useMemo(() => {
@@ -877,7 +978,7 @@
             ev.rows.forEach(r => {
               const ok = r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false;
               if (!ok) {
-                const normalized = r.location.trim();
+                const normalized = getNormalizedLocationCategory(r.location);
                 locationFailureMap[normalized] = (locationFailureMap[normalized] || 0) + 1;
                 totalFailedLocations++;
               }
@@ -935,10 +1036,11 @@
         filteredHospitalDatabase.forEach(ev => {
           if (ev.system === activeSubDashboard && top5UnitNames.includes(ev.department)) {
             ev.rows.forEach(r => {
-              if (r.image) {
+              const imgs = getRowImages(r);
+              imgs.forEach(img => {
                 const isPassed = r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false;
-                result.push({ department: ev.department, inspector: r.inspector || ev.inspector, date: r.date || ev.date, location: r.location, image: r.image, note: r.note || "Chưa có ghi chú", isPassed });
-              }
+                result.push({ department: ev.department, inspector: r.inspector || ev.inspector, date: r.date || ev.date, location: r.location, image: img, note: r.note || "Chưa có ghi chú", isPassed });
+              });
             });
           }
         });
