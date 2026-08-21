@@ -47,8 +47,7 @@ import {
   saveEvaluationToFirestore, 
   getDb 
 } from './firebase';
-import { compressImage } from './utils/imageCompressor';
-import { getNormalizedLocationCategory, getRowImages } from './utils/locationNormalizer';
+import { getNormalizedLocationCategory, getRowImages, SAMPLE_LOCATIONS_BY_SYSTEM } from './utils/locationNormalizer';
 
 // Danh sách 47 khoa/phòng/trung tâm Bệnh viện Đa khoa tỉnh Ninh Bình
 const DEPARTMENTS = [
@@ -265,18 +264,35 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [isCompressing, setIsCompressing] = useState({});
 
-  const [hospitalDatabase, setHospitalDatabase] = useState(INITIAL_HOSPITAL_DATABASE);
+  const [hospitalDatabase, setHospitalDatabase] = useState(() => {
+    try {
+      const stored = localStorage.getItem('HOSPITAL_DATABASE_5S');
+      return stored ? JSON.parse(stored) : INITIAL_HOSPITAL_DATABASE;
+    } catch (e) {
+      return INITIAL_HOSPITAL_DATABASE;
+    }
+  });
   const [selectedUnitForReport, setSelectedUnitForReport] = useState(null);
   const [viewImageModal, setViewImageModal] = useState(null);
 
+  // Đọc nháp đồng bộ từ localStorage ngay từ bước khởi tạo state
+  const [draftForm] = useState(() => {
+    try {
+      const stored = localStorage.getItem('QMS_5S_DRAFT_FORM');
+      return stored ? JSON.parse(stored) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
   // Form State
-  const [department, setDepartment] = useState('');
-  const [inspector, setInspector] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [rows, setRows] = useState([
+  const [department, setDepartment] = useState(() => draftForm?.department || '');
+  const [inspector, setInspector] = useState(() => draftForm?.inspector || '');
+  const [date, setDate] = useState(() => draftForm?.date || new Date().toISOString().split('T')[0]);
+  const [rows, setRows] = useState(() => (Array.isArray(draftForm?.rows) && draftForm.rows.length > 0) ? draftForm.rows : [
     {
       id: `row-${Date.now()}-0`,
-      location: 'Xe tiêm cấp cứu 1',
+      location: 'Bàn làm việc số 1',
       criteria: [true, true, true, true, true, true, false],
       note: '',
       improvement: 0,
@@ -285,12 +301,63 @@ export default function App() {
   ]);
   const [expandedRowId, setExpandedRowId] = useState(null);
 
-  const [deptSearch, setDeptSearch] = useState('');
+  const [deptSearch, setDeptSearch] = useState(() => draftForm?.department || '');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestionRef = useRef(null);
   
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('Đã lưu thành công dữ liệu!');
+
+  // Tự động lưu vĩnh viễn hospitalDatabase vào LocalStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('HOSPITAL_DATABASE_5S', JSON.stringify(hospitalDatabase));
+    } catch (e) {
+      console.warn("Lưu LocalStorage chưa thành công:", e);
+    }
+  }, [hospitalDatabase]);
+
+  // Tự động lưu bản nháp form khi người dùng thay đổi dữ liệu đang chấm
+  useEffect(() => {
+    if (department || inspector || (rows && rows.length > 1) || (rows[0] && (rows[0].note || (rows[0].images && rows[0].images.length > 0)))) {
+      try {
+        localStorage.setItem('QMS_5S_DRAFT_FORM', JSON.stringify({ department, inspector, date, rows }));
+      } catch (e) {}
+    }
+  }, [department, inspector, date, rows]);
+
+  // Cảnh báo trước khi làm mới hoặc đóng trang khi đang chấm dở
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (department || (rows && rows.length > 1) || (rows[0] && rows[0].note)) {
+        e.preventDefault();
+        e.returnValue = 'Bạn có phiên chấm 5S chưa lưu. Bạn có chắc muốn rời đi?';
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [department, rows]);
+
+  const handleClearDraft = () => {
+    if (window.confirm("Bạn có chắc chắn muốn hủy bản nháp đang chấm dở và tạo lại phiên chấm mới?")) {
+      try { localStorage.removeItem('QMS_5S_DRAFT_FORM'); } catch (e) {}
+      setDepartment('');
+      setDeptSearch('');
+      setInspector('');
+      setRows([
+        {
+          id: `row-${Date.now()}-0`,
+          location: 'Bàn làm việc số 1',
+          criteria: [true, true, true, true, true, true, false],
+          note: '',
+          improvement: 0,
+          image: null
+        }
+      ]);
+      setExpandedRowId(null);
+    }
+  };
 
   // Real-time Firebase Listener
   useEffect(() => {
@@ -325,13 +392,27 @@ export default function App() {
     setDepartment(name);
     setDeptSearch(name);
     setShowSuggestions(false);
+    const sys = DEPT_SYSTEM_MAP[name] || 'LAM_SANG';
+    const sampleList = SAMPLE_LOCATIONS_BY_SYSTEM[sys] || SAMPLE_LOCATIONS_BY_SYSTEM.LAM_SANG;
+    const defaultLoc = sampleList[0] || 'Bàn làm việc số 1';
+    setRows(prev => {
+      if (prev.length === 1 && (!prev[0].location || prev[0].location.startsWith('Xe tiêm') || prev[0].location.startsWith('Vị trí đánh giá') || prev[0].location === 'Bàn làm việc số 1')) {
+        return [{ ...prev[0], location: defaultLoc }];
+      }
+      return prev;
+    });
   };
 
   const addRow = () => {
     const newId = `row-${Date.now()}`;
+    const sys = DEPT_SYSTEM_MAP[department] || 'LAM_SANG';
+    const sampleList = SAMPLE_LOCATIONS_BY_SYSTEM[sys] || SAMPLE_LOCATIONS_BY_SYSTEM.LAM_SANG;
+    const nextLocIndex = rows.length % sampleList.length;
+    const defaultNextLoc = sampleList[nextLocIndex] || sampleList[0] || 'Bàn làm việc số 1';
+
     const newRow = {
       id: newId,
-      location: `Vị trí đánh giá ${rows.length + 1}`,
+      location: defaultNextLoc,
       criteria: [true, true, true, true, true, true, false],
       note: '',
       improvement: 0,
@@ -377,7 +458,7 @@ export default function App() {
       const newImages = [];
       let totalKb = 0;
       for (const file of files) {
-        const { dataUrl, sizeKb } = await compressImage(file, 1024, 0.75);
+        const { dataUrl, sizeKb } = await compressImage(file, 800, 0.65);
         newImages.push(dataUrl);
         totalKb += (sizeKb || 0);
       }
@@ -395,6 +476,8 @@ export default function App() {
       setIsCompressing(prev => ({ ...prev, [rowId]: false }));
     }
   };
+
+  const handleImageChange = handleAddImages;
 
   const handleDeleteImage = (rowId, imgIdx) => {
     setRows(prev => prev.map(r => {
@@ -472,18 +555,24 @@ export default function App() {
       system: detectedSystem,
       inspector: inspector || "Đoàn kiểm tra chất lượng",
       date: date,
-      rows: JSON.parse(JSON.stringify(rows))
+      rows: JSON.parse(JSON.stringify(rows)),
+      createdAt: new Date().toISOString()
     };
 
     setIsSaving(true);
     try {
-      if (isFirebaseConnected) {
-        await saveEvaluationToFirestore(newEvaluation);
-        setToastMessage('⚡ Đã đồng bộ Real-time lên Firebase Cloud!');
-      } else {
-        setHospitalDatabase(prev => [newEvaluation, ...prev.filter(e => e.department !== department)]);
-        setToastMessage('Đã lưu dữ liệu vào bộ nhớ máy!');
-      }
+      // 1. Cập nhật dữ liệu cục bộ tức thì -> Không phụ thuộc hoàn toàn vào Cloud
+      setHospitalDatabase(prev => {
+        const updated = [newEvaluation, ...prev.filter(e => e.id !== newEvaluation.id)];
+        try {
+          localStorage.setItem('HOSPITAL_DATABASE_5S', JSON.stringify(updated));
+        } catch (e) {
+          console.warn("Lưu LocalStorage chưa thành công:", e);
+        }
+        return updated;
+      });
+
+      setToastMessage('✅ Đã lưu kết quả đánh giá thành công!');
       setShowSavedToast(true);
       setTimeout(() => setShowSavedToast(false), 3000);
 
@@ -502,6 +591,23 @@ export default function App() {
         }
       ]);
       setExpandedRowId(null);
+      try { localStorage.removeItem('QMS_5S_DRAFT_FORM'); } catch (e) {}
+
+      // 2. Đồng bộ Firebase Cloud chạy nền với giới hạn Timeout 3.5s
+      if (isFirebaseConnected) {
+        try {
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout kết nối Firebase Cloud")), 3500));
+          await Promise.race([
+            saveEvaluationToFirestore(newEvaluation),
+            timeoutPromise
+          ]);
+          setToastMessage('⚡ Đã lưu và đồng bộ Real-time Cloud!');
+          setShowSavedToast(true);
+          setTimeout(() => setShowSavedToast(false), 3000);
+        } catch (cloudErr) {
+          console.warn("Đồng bộ Firebase chậm/offline, dữ liệu đã lưu an toàn vào máy:", cloudErr);
+        }
+      }
     } catch (err) {
       alert("Lỗi khi lưu dữ liệu: " + err.message);
     } finally {
@@ -634,7 +740,7 @@ export default function App() {
     };
   }, [hospitalDatabase]);
 
-  // Hình ảnh thực tế tại 5 đơn vị lỗi 5S nhiều nhất
+  // Hình ảnh thực tế tại 5 đơn vị lỗi 5S nhiều nhất (Chỉ lấy ảnh các vị trí LỖI/CHƯA ĐẠT 5S)
   const top5FailedUnitsImages = useMemo(() => {
     const currentSystemStats = dashboardStats[activeSubDashboard];
     const top5UnitNames = currentSystemStats.failedUnits.map(u => u.label);
@@ -643,19 +749,22 @@ export default function App() {
     hospitalDatabase.forEach(ev => {
       if (ev.system === activeSubDashboard && top5UnitNames.includes(ev.department)) {
         ev.rows.forEach(r => {
-          const imgs = getRowImages(r);
-          imgs.forEach(img => {
-            const isPassed = r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false;
-            result.push({
-              department: ev.department,
-              inspector: ev.inspector,
-              date: ev.date,
-              location: r.location,
-              image: img,
-              note: r.note || "Chưa có ghi chú",
-              isPassed
+          const isPassed = r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false;
+          // CHỈ lấy ảnh nếu vị trí KHÔNG ĐẠT (Lỗi 5S)
+          if (!isPassed) {
+            const imgs = getRowImages(r);
+            imgs.forEach(img => {
+              result.push({
+                department: ev.department,
+                inspector: ev.inspector,
+                date: ev.date,
+                location: r.location,
+                image: img,
+                note: r.note || "Chưa có ghi chú",
+                isPassed
+              });
             });
-          });
+          }
         });
       }
     });
@@ -1130,6 +1239,21 @@ export default function App() {
 
               {activeTab === 'EVALUATION' && (
                 <>
+                  {draftForm && (department || (rows && rows.length > 1) || (rows[0] && (rows[0].note || getRowImages(rows[0]).length > 0))) && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between text-xs font-bold text-amber-800 shadow-sm animate-fade-in">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
+                        <span>📝 Đã tự động khôi phục phiên đang chấm dở {department ? `(Khoa: ${department})` : ''} • {rows.length} vị trí</span>
+                      </div>
+                      <button 
+                        onClick={handleClearDraft}
+                        className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-[11px] font-extrabold transition-colors cursor-pointer"
+                        title="Xóa bản nháp này để chấm mới từ đầu"
+                      >
+                        Hủy nháp & Làm mới
+                      </button>
+                    </div>
+                  )}
                   <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-1 relative" ref={suggestionRef}>
                       <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1">
@@ -1355,25 +1479,58 @@ export default function App() {
 
                                       <div className="space-y-3 flex flex-col justify-between">
                                         <div className="space-y-2">
-                                                    <Trash2 size={16} />
-                                                  </button>
-                                                </div>
+                                          <h4 className="font-bold text-xs text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                                            <Camera size={14} className="text-blue-600" /> Bằng chứng 5S (Tối đa 3 ảnh)
+                                          </h4>
+                                          {getRowImages(row).length > 0 ? (
+                                            <div className="space-y-2">
+                                              <div className="flex items-center gap-2 flex-wrap">
+                                                {getRowImages(row).map((imgUrl, imgIdx) => (
+                                                  <div key={imgIdx} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-slate-200 shadow-sm bg-slate-100">
+                                                    <img 
+                                                      src={imgUrl} 
+                                                      alt={`Bằng chứng ${imgIdx + 1}`} 
+                                                      className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform" 
+                                                      onClick={() => setViewImageModal({ image: imgUrl, location: row.location, department, inspector, note: row.note })}
+                                                    />
+                                                    <button 
+                                                      type="button"
+                                                      onClick={() => handleDeleteImage(row.id, imgIdx)}
+                                                      className="absolute top-1 right-1 w-5 h-5 bg-red-600 text-white rounded-full text-[10px] font-bold flex items-center justify-center opacity-80 hover:opacity-100 hover:scale-110 transition-all shadow"
+                                                      title="Xóa ảnh này"
+                                                    >
+                                                      ✕
+                                                    </button>
+                                                  </div>
+                                                ))}
                                               </div>
-                                            ) : (
-                                              <label className="cursor-pointer space-y-1 flex flex-col items-center">
-                                                <ImageIcon size={28} className="text-slate-400" />
-                                                <span className="text-xs font-bold text-blue-600">Bấm chụp hoặc chọn ảnh</span>
-                                                <span className="text-[10px] text-slate-400">Tự động nén mượt &lt; 150KB</span>
-                                                <input 
-                                                  type="file" 
-                                                  accept="image/*" 
-                                                  capture="environment"
-                                                  className="hidden" 
-                                                  onChange={(e) => handleImageChange(row.id, e)}
-                                                />
-                                              </label>
-                                            )}
-                                          </div>
+                                              {getRowImages(row).length < 3 && (
+                                                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-lg cursor-pointer transition-colors">
+                                                  <Camera size={14} /> Thêm ảnh đính kèm
+                                                  <input 
+                                                    type="file" 
+                                                    accept="image/*" 
+                                                    multiple
+                                                    className="hidden" 
+                                                    onChange={(e) => handleAddImages(row.id, e)}
+                                                  />
+                                                </label>
+                                              )}
+                                            </div>
+                                          ) : (
+                                            <label className="cursor-pointer space-y-1 flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-4 hover:border-blue-300 hover:bg-blue-50/50 transition-all">
+                                              <ImageIcon size={28} className="text-slate-400" />
+                                              <span className="text-xs font-bold text-blue-600">Bấm chụp hoặc chọn ảnh</span>
+                                              <span className="text-[10px] text-slate-400">Hỗ trợ chọn nhiều ảnh (Tối đa 3 ảnh)</span>
+                                              <input 
+                                                type="file" 
+                                                accept="image/*" 
+                                                multiple
+                                                className="hidden" 
+                                                onChange={(e) => handleAddImages(row.id, e)}
+                                              />
+                                            </label>
+                                          )}
                                         </div>
                                       </div>
                                     </div>
@@ -1467,31 +1624,47 @@ export default function App() {
                                   onChange={(e) => updateRow(row.id, 'note', e.target.value)}
                                 />
                                 
-                                <div className="flex items-center justify-between gap-2">
-                                  <label className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg font-bold text-xs cursor-pointer hover:bg-blue-100 transition-colors">
-                                    <Camera size={16} /> Chụp / Chọn ảnh
-                                    <input 
-                                      type="file" 
-                                      accept="image/*" 
-                                      capture="environment"
-                                      className="hidden" 
-                                      onChange={(e) => handleImageChange(row.id, e)}
-                                    />
-                                  </label>
-                                  {row.image && (
-                                    <button 
-                                      onClick={() => setViewImageModal({ image: row.image, location: row.location, department, inspector, note: row.note })}
-                                      className="text-xs font-bold text-blue-600 flex items-center gap-1"
-                                    >
-                                      <Eye size={14} /> Xem ảnh ({row.imageKb || 0}KB)
-                                    </button>
+                                <div className="space-y-2">
+                                  {getRowImages(row).length > 0 && (
+                                    <div className="flex items-center gap-2 flex-wrap py-1">
+                                      {getRowImages(row).map((imgUrl, imgIdx) => (
+                                        <div key={imgIdx} className="relative group w-14 h-14 rounded-lg overflow-hidden border border-slate-200 shadow-sm bg-slate-100">
+                                          <img 
+                                            src={imgUrl} 
+                                            alt={`Bằng chứng ${imgIdx + 1}`} 
+                                            className="w-full h-full object-cover cursor-pointer" 
+                                            onClick={() => setViewImageModal({ image: imgUrl, location: row.location, department, inspector, note: row.note })}
+                                          />
+                                          <button 
+                                            type="button"
+                                            onClick={() => handleDeleteImage(row.id, imgIdx)}
+                                            className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-600 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow"
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
                                   )}
-                                  <button 
-                                    onClick={(e) => removeRow(row.id, e)}
-                                    className="text-red-500 p-2 hover:bg-red-50 rounded-lg text-xs font-bold flex items-center gap-1"
-                                  >
-                                    <Trash2 size={14} /> Xóa vị trí
-                                  </button>
+                                  
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <label className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg font-bold text-xs cursor-pointer hover:bg-blue-100 transition-colors">
+                                      <Camera size={16} /> {getRowImages(row).length > 0 ? `Thêm ảnh (${getRowImages(row).length}/3)` : "Chụp / Chọn ảnh"}
+                                      <input 
+                                        type="file" 
+                                        accept="image/*" 
+                                        multiple
+                                        className="hidden" 
+                                        onChange={(e) => handleAddImages(row.id, e)}
+                                      />
+                                    </label>
+                                    <button 
+                                      onClick={(e) => removeRow(row.id, e)}
+                                      className="text-red-500 p-2 hover:bg-red-50 rounded-lg text-xs font-bold flex items-center gap-1 ml-auto"
+                                    >
+                                      <Trash2 size={14} /> Xóa vị trí
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -1773,28 +1946,60 @@ export default function App() {
                       </button>
                     </div>
 
-                    <div className="p-4 overflow-y-auto space-y-3 divide-y divide-slate-100">
-                      {selectedUnitForReport.rows.map((r, i) => {
-                        const isPassed = r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false;
-                        return (
-                          <div key={i} className="pt-3 first:pt-0 space-y-2">
-                            <div className="flex justify-between items-center">
-                              <span className="font-bold text-xs text-slate-800">{i + 1}. {r.location}</span>
-                              {isPassed ? (
-                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Đạt 5S</span>
-                              ) : (
+                    <div className="p-4 overflow-y-auto space-y-4 max-h-[70vh]">
+                      {/* Mục 1: Vị trí KHÔNG ĐẠT 5S */}
+                      <div className="space-y-2">
+                        <h4 className="font-extrabold text-xs text-red-700 uppercase flex items-center justify-between border-b pb-1">
+                          <span>⚠️ Danh sách vị trí KHÔNG ĐẠT 5S ({selectedUnitForReport.rows.filter(r => !(r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).length})</span>
+                        </h4>
+                        {selectedUnitForReport.rows.filter(r => !(r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).length === 0 ? (
+                          <p className="text-xs text-emerald-700 italic bg-emerald-50 p-3 rounded-lg border border-emerald-200 text-center">🎉 Đơn vị đạt chuẩn 100% 5S (Không có vị trí vi phạm)</p>
+                        ) : (
+                          selectedUnitForReport.rows.filter(r => !(r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).map((r, i) => (
+                            <div key={i} className="bg-red-50/50 p-3 rounded-xl border border-red-100 space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="font-bold text-xs text-slate-800">{r.location}</span>
                                 <span className="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Chưa đạt</span>
+                              </div>
+                              {r.note && <p className="text-xs text-slate-700 bg-white p-2 rounded border border-red-200 font-medium">Ghi chú lỗi: {r.note}</p>}
+                              {getRowImages(r).length > 0 && (
+                                <div className="flex gap-2 flex-wrap pt-1">
+                                  {getRowImages(r).map((imgUrl, imgIdx) => (
+                                    <img key={imgIdx} src={imgUrl} alt={r.location} className="w-16 h-16 object-cover rounded-lg border cursor-pointer hover:scale-105 transition-transform" onClick={() => setViewImageModal({ department: selectedUnitForReport.department, location: r.location, inspector: selectedUnitForReport.inspector, image: imgUrl, note: r.note })} />
+                                  ))}
+                                </div>
                               )}
                             </div>
-                            {r.note && <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded border border-slate-200">Ghi chú: {r.note}</p>}
-                            {r.image && (
-                              <div className="w-24 h-24 rounded border border-slate-200 overflow-hidden">
-                                <img src={r.image} alt={r.location} className="w-full h-full object-cover" />
+                          ))
+                        )}
+                      </div>
+
+                      {/* Mục 2: Vị trí ĐẠT 5S (Bao gồm ảnh bằng chứng vị trí đạt) */}
+                      <div className="space-y-2 pt-2">
+                        <h4 className="font-extrabold text-xs text-emerald-700 uppercase flex items-center justify-between border-b pb-1">
+                          <span>✅ Danh sách vị trí ĐẠT 5S ({selectedUnitForReport.rows.filter(r => (r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).length})</span>
+                        </h4>
+                        {selectedUnitForReport.rows.filter(r => (r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).length === 0 ? (
+                          <p className="text-xs text-slate-500 italic p-2">Chưa có vị trí nào đạt chuẩn 5S trong đợt này.</p>
+                        ) : (
+                          selectedUnitForReport.rows.filter(r => (r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).map((r, i) => (
+                            <div key={i} className="bg-emerald-50/40 p-3 rounded-xl border border-emerald-100 space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="font-bold text-xs text-slate-800">{r.location}</span>
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Đạt 5S</span>
                               </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                              {r.note && <p className="text-xs text-slate-700 bg-white p-2 rounded border border-emerald-200">Ghi chú: {r.note}</p>}
+                              {getRowImages(r).length > 0 && (
+                                <div className="flex gap-2 flex-wrap pt-1">
+                                  {getRowImages(r).map((imgUrl, imgIdx) => (
+                                    <img key={imgIdx} src={imgUrl} alt={r.location} className="w-16 h-16 object-cover rounded-lg border cursor-pointer hover:scale-105 transition-transform" onClick={() => setViewImageModal({ department: selectedUnitForReport.department, location: r.location, inspector: selectedUnitForReport.inspector, image: imgUrl, note: r.note })} />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
                     </div>
 
                     <div className="bg-slate-50 p-3 border-t border-slate-100 flex justify-end">

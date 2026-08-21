@@ -257,29 +257,36 @@
     ];
 
     const SAMPLE_LOCATIONS_BY_SYSTEM = {
-      PHONG_BAN: [
-        "Bàn làm việc của ...",
-        "Tủ tài liệu",
-        "Kho"
-      ],
       LAM_SANG: [
+        "Bàn làm việc số 1",
         "Bàn giao ban",
-        "Bàn làm việc",
         "Tủ tài liệu",
-        "Xe tiêm",
+        "Bàn tiếp đón",
+        "Xe tiêm số 1",
         "Tủ thuốc",
+        "Tủ/ giá vật tư",
         "Tủ đồ vải",
-        "Tủ vật tư",
-        "Buồng bệnh số ...",
+        "Kho",
+        "Buồng bệnh số 1",
+        "Buồng nhân viên",
         "Nhà vệ sinh"
       ],
       CAN_LAM_SANG: [
+        "Bàn làm việc số 1",
         "Bàn giao ban",
-        "Bàn làm việc",
-        "Tủ tài liệu",
-        "Xe tiêm",
+        "Tủ tài liệu số 1",
+        "Bàn tiếp đón",
         "Tủ vật tư",
+        "Thiết bị y tế số 1",
+        "Kho",
+        "Buồng nhân viên",
         "Nhà vệ sinh"
+      ],
+      PHONG_BAN: [
+        "Bàn làm việc số 1",
+        "Tủ tài liệu số 1",
+        "Bàn giao ban",
+        "Kho"
       ]
     };
 
@@ -402,12 +409,22 @@
       const cleanStr = removeVietnameseTones(rawName.trim().toLowerCase())
         .replace(/\(.*?\)/g, '')
         .replace(/so\s*\d+/g, '')
+        .replace(/so\s*\.\.\./g, '')
         .replace(/\b\d+\b/g, '')
         .replace(/\s+/g, ' ')
         .trim();
 
+      if (cleanStr.includes('ban lam viec')) {
+        return 'Bàn làm việc';
+      }
+      if (cleanStr.includes('ban giao ban') || cleanStr.includes('giao ban')) {
+        return 'Bàn giao ban';
+      }
       if (cleanStr.includes('tu tai lieu') || cleanStr.includes('tu ho so')) {
         return 'Tủ tài liệu';
+      }
+      if (cleanStr.includes('ban tiep don') || cleanStr.includes('tiep don')) {
+        return 'Bàn tiếp đón';
       }
       if (cleanStr.includes('xe tiem')) {
         return 'Xe tiêm';
@@ -415,17 +432,26 @@
       if (cleanStr.includes('tu thuoc')) {
         return 'Tủ thuốc';
       }
-      if (cleanStr.includes('ban giao ban') || cleanStr.includes('giao ban')) {
-        return 'Bàn giao ban';
+      if (cleanStr.includes('tu/ gia vat tu') || cleanStr.includes('tu vat tu') || cleanStr.includes('gia vat tu') || cleanStr.includes('kho vat tu')) {
+        return 'Tủ / Giá vật tư';
       }
-      if (cleanStr.includes('ban lam viec')) {
-        return 'Bàn làm việc';
+      if (cleanStr.includes('tu do vai') || cleanStr.includes('do vai')) {
+        return 'Tủ đồ vải';
       }
-      if (cleanStr.includes('kho vat tu')) {
-        return 'Kho vật tư';
+      if (cleanStr.includes('buong benh') || cleanStr.includes('phong benh')) {
+        return 'Buồng bệnh';
       }
-      if (cleanStr.includes('tu vat tu')) {
-        return 'Tủ vật tư';
+      if (cleanStr.includes('buong nhan vien') || cleanStr.includes('phong nhan vien')) {
+        return 'Buồng nhân viên';
+      }
+      if (cleanStr.includes('thiet bi y te') || cleanStr.includes('thiet bi')) {
+        return 'Thiết bị y tế';
+      }
+      if (cleanStr.includes('nha ve sinh') || cleanStr.includes('ve sinh')) {
+        return 'Nhà vệ sinh';
+      }
+      if (cleanStr.includes('kho')) {
+        return 'Kho';
       }
       if (cleanStr.includes('phong sinh')) {
         return 'Phòng sinh';
@@ -435,12 +461,6 @@
       }
       if (cleanStr.includes('phong kham')) {
         return 'Phòng khám bệnh';
-      }
-      if (cleanStr.includes('kho thiet bi')) {
-        return 'Kho thiết bị';
-      }
-      if (cleanStr.includes('tu thiet bi')) {
-        return 'Tủ thiết bị';
       }
       if (!cleanStr) return 'Vị trí khác';
       const words = cleanStr.split(' ');
@@ -609,20 +629,63 @@
         reader.readAsText(file);
       };
 
+      // Đọc nháp đồng bộ từ localStorage ngay từ bước khởi tạo state
+      const [draftForm] = useState(() => {
+        try {
+          const stored = localStorage.getItem('QMS_5S_DRAFT_FORM');
+          return stored ? JSON.parse(stored) : null;
+        } catch (e) { return null; }
+      });
+
       // Form state & Phân công đánh giá 5S
-      const [department, setDepartment] = useState('');
-      const [inspector, setInspector] = useState('');
-      const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-      const [rows, setRows] = useState([
-        { id: `row-${Date.now()}-0`, location: 'Xe tiêm cấp cứu 1', criteria: [true, true, true, true, true, true, false], note: '', improvement: 0, image: null }
+      const [department, setDepartment] = useState(() => draftForm?.department || '');
+      const [inspector, setInspector] = useState(() => draftForm?.inspector || '');
+      const [date, setDate] = useState(() => draftForm?.date || new Date().toISOString().split('T')[0]);
+      const [rows, setRows] = useState(() => (Array.isArray(draftForm?.rows) && draftForm.rows.length > 0) ? draftForm.rows : [
+        { id: `row-${Date.now()}-0`, location: 'Bàn làm việc số 1', criteria: [true, true, true, true, true, true, false], note: '', improvement: 0, image: null }
       ]);
       const [expandedRowId, setExpandedRowId] = useState(null);
-      const [deptSearch, setDeptSearch] = useState('');
+      const [deptSearch, setDeptSearch] = useState(() => draftForm?.department || '');
       const [showSuggestions, setShowSuggestions] = useState(false);
       const suggestionRef = useRef(null);
       const [showSavedToast, setShowSavedToast] = useState(false);
       const [toastMessage, setToastMessage] = useState('Đã lưu thành công dữ liệu!');
       const [dbRef, setDbRef] = useState(null);
+
+      // Tự động lưu bản nháp form khi đang chấm
+      useEffect(() => {
+        if (department || inspector || (rows && rows.length > 1) || (rows[0] && (rows[0].note || (rows[0].images && rows[0].images.length > 0)))) {
+          try {
+            localStorage.setItem('QMS_5S_DRAFT_FORM', JSON.stringify({ department, inspector, date, rows }));
+          } catch (e) {}
+        }
+      }, [department, inspector, date, rows]);
+
+      // Cảnh báo người dùng trước khi tải lại hoặc đóng trang nếu đang chấm dở
+      useEffect(() => {
+        const handleBeforeUnload = (e) => {
+          if (department || (rows && rows.length > 1) || (rows[0] && rows[0].note)) {
+            e.preventDefault();
+            e.returnValue = 'Bạn có phiên chấm 5S chưa lưu. Bạn có chắc muốn rời đi?';
+            return e.returnValue;
+          }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+      }, [department, rows]);
+
+      const handleClearDraft = () => {
+        if (window.confirm("Bạn có chắc chắn muốn hủy bản nháp đang chấm dở và tạo lại phiên chấm mới?")) {
+          try { localStorage.removeItem('QMS_5S_DRAFT_FORM'); } catch (e) {}
+          setDepartment('');
+          setDeptSearch('');
+          setInspector('');
+          setRows([
+            { id: `row-${Date.now()}-0`, location: 'Xe tiêm cấp cứu 1', criteria: [true, true, true, true, true, true, false], note: '', improvement: 0, image: null }
+          ]);
+          setExpandedRowId(null);
+        }
+      };
 
       // Phân công đánh giá 5S State
       const [assignments5S, setAssignments5S] = useState(() => {
@@ -793,12 +856,23 @@
         setDepartment(name);
         setDeptSearch(name);
         setShowSuggestions(false);
+        const sys = DEPT_SYSTEM_MAP[name] || 'LAM_SANG';
+        const sampleList = SAMPLE_LOCATIONS_BY_SYSTEM[sys] || SAMPLE_LOCATIONS_BY_SYSTEM.LAM_SANG;
+        const defaultLoc = sampleList[0] || 'Bàn làm việc số 1';
+        setRows(prev => {
+          if (prev.length === 1 && (!prev[0].location || prev[0].location.startsWith('Xe tiêm') || prev[0].location.startsWith('Vị trí đánh giá') || prev[0].location === 'Bàn làm việc số 1')) {
+            return [{ ...prev[0], location: defaultLoc }];
+          }
+          return prev;
+        });
       };
 
       const addRow = (defaultLocation) => {
         const newId = `row-${Date.now()}`;
-        const initialLoc = (typeof defaultLocation === 'string' && defaultLocation) ? defaultLocation : (availableSampleLocations[0] || `Vị trí đánh giá ${rows.length + 1}`);
-        setRows(prev => [...prev, { id: newId, location: initialLoc, criteria: [true, true, true, true, true, true, false], note: '', improvement: 0, image: null }]);
+        const nextLoc = (typeof defaultLocation === 'string' && defaultLocation) 
+          ? defaultLocation 
+          : (availableSampleLocations[rows.length % availableSampleLocations.length] || availableSampleLocations[0] || 'Bàn làm việc số 1');
+        setRows(prev => [...prev, { id: newId, location: nextLoc, criteria: [true, true, true, true, true, true, false], note: '', improvement: 0, image: null }]);
         setExpandedRowId(newId);
       };
 
@@ -830,7 +904,7 @@
         try {
           const newImages = [];
           for (const file of files) {
-            const { dataUrl } = await compressImage(file, 1024, 0.75);
+            const { dataUrl } = await compressImage(file, 800, 0.65);
             newImages.push(dataUrl);
           }
           setRows(prev => prev.map(r => {
@@ -843,6 +917,7 @@
           }));
         } catch (err) { alert("Lỗi nén ảnh: " + err.message); }
       };
+      const handleImageChange = handleAddImages;
 
       const handleDeleteImage = (rowId, imgIdx) => {
         setRows(prev => prev.map(r => {
@@ -1036,11 +1111,14 @@
         filteredHospitalDatabase.forEach(ev => {
           if (ev.system === activeSubDashboard && top5UnitNames.includes(ev.department)) {
             ev.rows.forEach(r => {
-              const imgs = getRowImages(r);
-              imgs.forEach(img => {
-                const isPassed = r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false;
-                result.push({ department: ev.department, inspector: r.inspector || ev.inspector, date: r.date || ev.date, location: r.location, image: img, note: r.note || "Chưa có ghi chú", isPassed });
-              });
+              const isPassed = r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false;
+              // CHỈ lấy ảnh của các vị trí KHÔNG ĐẠT (Lỗi 5S)
+              if (!isPassed) {
+                const imgs = getRowImages(r);
+                imgs.forEach(img => {
+                  result.push({ department: ev.department, inspector: r.inspector || ev.inspector, date: r.date || ev.date, location: r.location, image: img, note: r.note || "Chưa có ghi chú", isPassed });
+                });
+              }
             });
           }
         });
@@ -1356,6 +1434,96 @@
                                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white text-[9px] font-bold">
                                               🔍 Phóng to
                                             </div>
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-400 italic text-[11px]">Không có ảnh</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Danh sách vị trí ĐẠT 5S (Bao gồm hình ảnh bằng chứng vị trí đạt) */}
+                  <div className="space-y-3 pt-4 border-t">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-extrabold text-sm uppercase text-slate-800 flex items-center gap-2">
+                        <span>✅ Danh sách vị trí ĐẠT 5S</span>
+                      </h4>
+                      <span className="text-xs text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                        {(() => {
+                          const pCount = selectedUnitForReport.rows ? selectedUnitForReport.rows.filter(r => (r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).length : 0;
+                          return `${pCount} vị trí đạt`;
+                        })()}
+                      </span>
+                    </div>
+
+                    {(() => {
+                      const passedRows = selectedUnitForReport.rows
+                        ? selectedUnitForReport.rows.filter(r => (r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false))
+                        : [];
+
+                      if (passedRows.length === 0) {
+                        return (
+                          <div className="p-4 text-center bg-slate-50 rounded-xl border border-slate-200">
+                            <p className="text-xs text-slate-500 italic">Chưa có vị trí nào đạt chuẩn 5S trong đợt này.</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                              <thead>
+                                <tr className="bg-emerald-50/80 text-emerald-900 text-[11px] font-black uppercase tracking-wider border-b">
+                                  <th className="p-3 text-center w-12">STT</th>
+                                  <th className="p-3 w-1/3">Vị trí Đạt 5S</th>
+                                  <th className="p-3">Ghi chú / Đánh giá</th>
+                                  <th className="p-3 text-center w-36">Hình ảnh đính kèm</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y text-xs">
+                                {passedRows.map((row, idx) => {
+                                  const imgs = getRowImages(row);
+                                  return (
+                                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                      <td className="p-3 text-center font-black text-slate-500">
+                                        {idx + 1}
+                                      </td>
+                                      <td className="p-3 font-extrabold text-slate-900">
+                                        <div>{row.location}</div>
+                                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full inline-block mt-1">
+                                          ✓ Đạt 7 tiêu chí 5S
+                                        </span>
+                                      </td>
+                                      <td className="p-3">
+                                        {row.note ? (
+                                          <p className="text-slate-800 font-medium bg-slate-50 p-2 rounded-lg border border-slate-200 text-[11px]">
+                                            📝 {row.note}
+                                          </p>
+                                        ) : (
+                                          <span className="text-slate-400 italic text-[11px]">Gọn gàng, sạch sẽ, đạt chuẩn 5S</span>
+                                        )}
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        {imgs.length > 0 ? (
+                                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                            {imgs.map((imgUrl, imgIdx) => (
+                                              <div
+                                                key={imgIdx}
+                                                onClick={() => setViewImageModal({ department: selectedUnitForReport.department, location: row.location, inspector: selectedUnitForReport.inspector, image: imgUrl, note: row.note })}
+                                                className="relative inline-block w-12 h-12 rounded-lg overflow-hidden border cursor-pointer group shadow-sm bg-slate-100"
+                                              >
+                                                <img src={imgUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                                              </div>
+                                            ))}
                                           </div>
                                         ) : (
                                           <span className="text-slate-400 italic text-[11px]">Không có ảnh</span>
@@ -1965,6 +2133,21 @@
 
                   {activeTab === 'EVALUATION' && (
                     <div className="space-y-4">
+                      {draftForm && (department || (rows && rows.length > 1) || (rows[0] && (rows[0].note || (rows[0].images && rows[0].images.length > 0)))) && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between text-xs font-bold text-amber-800 shadow-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
+                            <span>📝 Đã tự động khôi phục phiên đang chấm dở {department ? `(Khoa: ${department})` : ''} • {rows.length} vị trí</span>
+                          </div>
+                          <button 
+                            onClick={handleClearDraft}
+                            className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-[11px] font-extrabold transition-colors cursor-pointer"
+                            title="Xóa bản nháp này để chấm mới từ đầu"
+                          >
+                            Hủy nháp & Làm mới
+                          </button>
+                        </div>
+                      )}
                       <div className="bg-white p-4 rounded-xl border grid grid-cols-1 md:grid-cols-3 gap-4 shadow-sm items-start">
                         {/* 1. Người đánh giá (Xếp trước tiên) */}
                         <div className="relative">
@@ -2147,12 +2330,21 @@
                                     </div>
                                     <div className="space-y-3">
                                       <textarea className="w-full h-24 p-2 text-xs border rounded-lg" placeholder="Ghi chú lỗi..." value={r.note || ''} onChange={e => updateRow(r.id, 'note', e.target.value)} />
-                                      <div className="flex justify-between items-center">
-                                        <label className="px-3 py-1.5 bg-blue-50 text-blue-700 font-bold text-xs rounded-lg cursor-pointer">
-                                          📷 {r.image ? 'Đổi ảnh lỗi' : 'Tải ảnh minh họa'}
-                                          <input type="file" accept="image/*" className="hidden" onChange={e => handleImageChange(r.id, e)} />
+                                      <div className="space-y-2">
+                                        {getRowImages(r).length > 0 && (
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            {getRowImages(r).map((imgUrl, imgIdx) => (
+                                              <div key={imgIdx} className="relative group w-12 h-12 rounded-lg overflow-hidden border border-slate-200 shadow-sm bg-slate-100">
+                                                <img src={imgUrl} alt={`Ảnh ${imgIdx + 1}`} className="w-full h-full object-cover cursor-pointer" onClick={() => setViewImageModal({ image: imgUrl, location: r.location, department, inspector, note: r.note })} />
+                                                <button type="button" onClick={() => handleDeleteImage(r.id, imgIdx)} className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-600 text-white rounded-full text-[9px] font-bold flex items-center justify-center">✕</button>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                        <label className="px-3 py-1.5 bg-blue-50 text-blue-700 font-bold text-xs rounded-lg cursor-pointer inline-flex items-center gap-1 hover:bg-blue-100 transition-colors">
+                                          📷 {getRowImages(r).length > 0 ? `Thêm ảnh (${getRowImages(r).length}/3)` : 'Tải ảnh minh họa (tối đa 3)'}
+                                          <input type="file" accept="image/*" multiple className="hidden" onChange={e => handleAddImages(r.id, e)} />
                                         </label>
-                                        {r.image && <span className="text-[10px] text-emerald-600 font-bold">✓ Đã đính kèm</span>}
                                       </div>
                                     </div>
                                   </div>

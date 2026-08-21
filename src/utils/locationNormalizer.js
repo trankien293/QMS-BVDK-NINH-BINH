@@ -21,18 +21,62 @@ export const removeVietnameseTones = (str) => {
   return str;
 };
 
+export const SAMPLE_LOCATIONS_BY_SYSTEM = {
+  LAM_SANG: [
+    "Bàn làm việc số 1",
+    "Bàn giao ban",
+    "Tủ tài liệu",
+    "Bàn tiếp đón",
+    "Xe tiêm số 1",
+    "Tủ thuốc",
+    "Tủ/ giá vật tư",
+    "Tủ đồ vải",
+    "Kho",
+    "Buồng bệnh số 1",
+    "Buồng nhân viên",
+    "Nhà vệ sinh"
+  ],
+  CAN_LAM_SANG: [
+    "Bàn làm việc số 1",
+    "Bàn giao ban",
+    "Tủ tài liệu số 1",
+    "Bàn tiếp đón",
+    "Tủ vật tư",
+    "Thiết bị y tế số 1",
+    "Kho",
+    "Buồng nhân viên",
+    "Nhà vệ sinh"
+  ],
+  PHONG_BAN: [
+    "Bàn làm việc số 1",
+    "Tủ tài liệu số 1",
+    "Bàn giao ban",
+    "Kho"
+  ]
+};
+
 export const getNormalizedLocationCategory = (rawName) => {
   if (!rawName || typeof rawName !== 'string') return 'Vị trí khác';
   
   const cleanStr = removeVietnameseTones(rawName.trim().toLowerCase())
     .replace(/\(.*?\)/g, '') // Bỏ phần trong ngoặc
     .replace(/so\s*\d+/g, '') // Bỏ "số 1", "số 2"
+    .replace(/so\s*\.\.\./g, '') // Bỏ "số..."
     .replace(/\b\d+\b/g, '')  // Bỏ số lẻ "1", "2"
     .replace(/\s+/g, ' ')
     .trim();
 
+  if (cleanStr.includes('ban lam viec')) {
+    return 'Bàn làm việc';
+  }
+  if (cleanStr.includes('ban giao ban') || cleanStr.includes('giao ban')) {
+    return 'Bàn giao ban';
+  }
   if (cleanStr.includes('tu tai lieu') || cleanStr.includes('tu ho so')) {
     return 'Tủ tài liệu';
+  }
+  if (cleanStr.includes('ban tiep don') || cleanStr.includes('tiep don')) {
+    return 'Bàn tiếp đón';
   }
   if (cleanStr.includes('xe tiem')) {
     return 'Xe tiêm';
@@ -40,17 +84,26 @@ export const getNormalizedLocationCategory = (rawName) => {
   if (cleanStr.includes('tu thuoc')) {
     return 'Tủ thuốc';
   }
-  if (cleanStr.includes('ban giao ban') || cleanStr.includes('giao ban')) {
-    return 'Bàn giao ban';
+  if (cleanStr.includes('tu/ gia vat tu') || cleanStr.includes('tu vat tu') || cleanStr.includes('gia vat tu') || cleanStr.includes('kho vat tu')) {
+    return 'Tủ / Giá vật tư';
   }
-  if (cleanStr.includes('ban lam viec')) {
-    return 'Bàn làm việc';
+  if (cleanStr.includes('tu do vai') || cleanStr.includes('do vai')) {
+    return 'Tủ đồ vải';
   }
-  if (cleanStr.includes('kho vat tu')) {
-    return 'Kho vật tư';
+  if (cleanStr.includes('buong benh') || cleanStr.includes('phong benh')) {
+    return 'Buồng bệnh';
   }
-  if (cleanStr.includes('tu vat tu')) {
-    return 'Tủ vật tư';
+  if (cleanStr.includes('buong nhan vien') || cleanStr.includes('phong nhan vien')) {
+    return 'Buồng nhân viên';
+  }
+  if (cleanStr.includes('thiet bi y te') || cleanStr.includes('thiet bi')) {
+    return 'Thiết bị y tế';
+  }
+  if (cleanStr.includes('nha ve sinh') || cleanStr.includes('ve sinh')) {
+    return 'Nhà vệ sinh';
+  }
+  if (cleanStr.includes('kho')) {
+    return 'Kho';
   }
   if (cleanStr.includes('phong sinh')) {
     return 'Phòng sinh';
@@ -60,12 +113,6 @@ export const getNormalizedLocationCategory = (rawName) => {
   }
   if (cleanStr.includes('phong kham')) {
     return 'Phòng khám bệnh';
-  }
-  if (cleanStr.includes('kho thiet bi')) {
-    return 'Kho thiết bị';
-  }
-  if (cleanStr.includes('tu thiet bi')) {
-    return 'Tủ thiết bị';
   }
   
   if (!cleanStr) return 'Vị trí khác';
