@@ -249,8 +249,20 @@ const generateConicGradient = (items) => {
 };
 
 export default function App() {
-  // Navigation State (Default = HOME)
-  const [currentModule, setCurrentModule] = useState('HOME');
+  // Đọc nháp đồng bộ từ localStorage ngay từ bước khởi tạo state
+  const [draftForm] = useState(() => {
+    try {
+      const stored = localStorage.getItem('QMS_5S_DRAFT_FORM');
+      return stored ? JSON.parse(stored) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const hasActiveDraft = draftForm && (draftForm.department || (draftForm.rows && draftForm.rows.length > 1) || (draftForm.rows?.[0]?.note || (draftForm.rows?.[0]?.images && draftForm.rows[0].images.length > 0)));
+
+  // Navigation State (Nếu có bản nháp đang chấm dở, tự động mở thẳng Màn hình Chấm 5S)
+  const [currentModule, setCurrentModule] = useState(() => hasActiveDraft ? 'MODULE_5S' : 'HOME');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // 5S Module State
@@ -274,16 +286,6 @@ export default function App() {
   });
   const [selectedUnitForReport, setSelectedUnitForReport] = useState(null);
   const [viewImageModal, setViewImageModal] = useState(null);
-
-  // Đọc nháp đồng bộ từ localStorage ngay từ bước khởi tạo state
-  const [draftForm] = useState(() => {
-    try {
-      const stored = localStorage.getItem('QMS_5S_DRAFT_FORM');
-      return stored ? JSON.parse(stored) : null;
-    } catch (e) {
-      return null;
-    }
-  });
 
   // Form State
   const [department, setDepartment] = useState(() => draftForm?.department || '');
