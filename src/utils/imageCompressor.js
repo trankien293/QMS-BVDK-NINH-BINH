@@ -5,7 +5,7 @@
  * @param {number} quality - Chất lượng JPEG (0.1 đến 1.0, default: 0.75)
  * @returns {Promise<{ dataUrl: string, sizeKb: number }>} Ảnh nén Base64 & Dung lượng (KB)
  */
-export const compressImage = (file, maxWidth = 800, quality = 0.65) => {
+export const compressImage = (file, maxWidth = 600, quality = 0.5) => {
   return new Promise((resolve, reject) => {
     if (!file || !file.type.startsWith('image/')) {
       reject(new Error('File không phải là ảnh hợp lệ'));

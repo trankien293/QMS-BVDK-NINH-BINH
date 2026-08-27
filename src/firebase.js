@@ -9,6 +9,12 @@ import {
   query, 
   orderBy 
 } from 'firebase/firestore';
+import {
+  getStorage,
+  ref,
+  uploadString,
+  getDownloadURL
+} from 'firebase/storage';
 
 export const DEFAULT_FIREBASE_CONFIG = {
   apiKey: "AIzaSyCaRIpOe1wIgGSe_Wd-8uFbNBifBnU0xfw",
@@ -134,3 +140,31 @@ export const deleteEvaluationFromFirestore = async (docId) => {
   const docRef = doc(db, 'evaluations_5s', docId);
   await deleteDoc(docRef);
 };
+
+/**
+ * Tải ảnh đã nén lên Firebase Storage và trả về URL
+ */
+export const uploadCompressedImageToStorage = async (dataUrl) => {
+  if (!dataUrl || !dataUrl.startsWith('data:image/')) return dataUrl;
+  try {
+    if (!appInstance) return dataUrl;
+    const storage = getStorage(appInstance);
+    const filename = `evaluations_5s/${Date.now()}_${Math.random().toString(36).substring(2, 9)}.jpg`;
+    const imageRef = ref(storage, filename);
+
+    const uploadPromise = (async () => {
+      await uploadString(imageRef, dataUrl, 'data_url');
+      return await getDownloadURL(imageRef);
+    })();
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Storage Timeout")), 1500)
+    );
+
+    return await Promise.race([uploadPromise, timeoutPromise]);
+  } catch (err) {
+    console.warn("Storage chưa kích hoạt hoặc bị treo, tự động lưu Base64 nén:", err);
+    return dataUrl;
+  }
+};
+

@@ -45,8 +45,14 @@ import {
   initFirebase, 
   subscribeEvaluations, 
   saveEvaluationToFirestore, 
+  uploadCompressedImageToStorage,
   getDb 
 } from './firebase';
+import {
+  getStoredSupabaseConfig,
+  saveSupabaseConfigToStorage,
+  uploadToSupabaseStorage
+} from './supabase';
 import { getNormalizedLocationCategory, getRowImages, SAMPLE_LOCATIONS_BY_SYSTEM } from './utils/locationNormalizer';
 
 // Danh sách 47 khoa/phòng/trung tâm Bệnh viện Đa khoa tỉnh Ninh Bình
@@ -272,6 +278,12 @@ export default function App() {
   const [firebaseConfig, setFirebaseConfig] = useState(() => getStoredFirebaseConfig());
   const [isFirebaseConnected, setIsFirebaseConnected] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  
+  // Storage System State (Dual Storage: Supabase & Firebase)
+  const [storageProvider, setStorageProvider] = useState(() => localStorage.getItem('STORAGE_PROVIDER_5S') || 'supabase');
+  const [supabaseUrlInput, setSupabaseUrlInput] = useState(() => getStoredSupabaseConfig().url || '');
+  const [supabaseAnonKeyInput, setSupabaseAnonKeyInput] = useState(() => getStoredSupabaseConfig().anonKey || '');
+  const [supabaseBucketInput, setSupabaseBucketInput] = useState(() => getStoredSupabaseConfig().bucket || 'qms-5s-images');
   const [configJsonInput, setConfigJsonInput] = useState(() => JSON.stringify(getStoredFirebaseConfig(), null, 2));
   const [isSaving, setIsSaving] = useState(false);
   const [isCompressing, setIsCompressing] = useState({});
@@ -451,6 +463,41 @@ export default function App() {
     }));
   };
 
+  const uploadImageSmart = async (dataUrl) => {
+    const provider = localStorage.getItem('STORAGE_PROVIDER_5S') || 'supabase';
+    
+    if (provider === 'supabase') {
+      try {
+        const supConfig = getStoredSupabaseConfig();
+        if (supConfig && supConfig.url && supConfig.anonKey) {
+          const uploadPromise = uploadToSupabaseStorage(dataUrl, supConfig);
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Supabase Timeout")), 2500)
+          );
+          return await Promise.race([uploadPromise, timeoutPromise]);
+        }
+      } catch (err) {
+        console.warn("Lỗi upload Supabase, sử dụng Base64 nén:", err);
+      }
+      return dataUrl;
+    }
+
+    if (provider === 'firebase') {
+      try {
+        const uploadPromise = uploadCompressedImageToStorage(dataUrl);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Firebase Timeout")), 2500)
+        );
+        return await Promise.race([uploadPromise, timeoutPromise]);
+      } catch (err) {
+        console.warn("Lỗi upload Firebase, sử dụng Base64 nén:", err);
+      }
+      return dataUrl;
+    }
+
+    return dataUrl;
+  };
+
   const handleAddImages = async (rowId, e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
@@ -460,20 +507,22 @@ export default function App() {
       const newImages = [];
       let totalKb = 0;
       for (const file of files) {
-        const { dataUrl, sizeKb } = await compressImage(file, 800, 0.65);
-        newImages.push(dataUrl);
+        const { dataUrl, sizeKb } = await compressImage(file, 600, 0.5);
+        // Tự động tải ảnh nén lên Supabase / Firebase / Base64 tùy cài đặt
+        const uploadedUrl = await uploadImageSmart(dataUrl);
+        newImages.push(uploadedUrl);
         totalKb += (sizeKb || 0);
       }
       setRows(prev => prev.map(r => {
         if (r.id === rowId) {
           const existing = getRowImages(r);
-          const combined = [...existing, ...newImages].slice(0, 3);
+          const combined = [...existing, ...newImages].slice(0, 30);
           return { ...r, images: combined, image: combined[0] || null, imageKb: totalKb };
         }
         return r;
       }));
     } catch (err) {
-      alert("Lỗi nén ảnh: " + err.message);
+      alert("Lỗi nén/tải ảnh: " + err.message);
     } finally {
       setIsCompressing(prev => ({ ...prev, [rowId]: false }));
     }
@@ -509,34 +558,45 @@ export default function App() {
     );
   }, [deptSearch]);
 
-  const handleSaveFirebaseConfig = () => {
+  const handleSaveAllSettings = () => {
     try {
-      let configObj = null;
-      if (configJsonInput.trim().startsWith('{')) {
-        configObj = JSON.parse(configJsonInput);
-      } else if (configJsonInput.includes('apiKey')) {
-        const cleaned = configJsonInput.replace(/const firebaseConfig =/g, '').replace(/;/g, '');
-        configObj = Function('"use strict";return (' + cleaned + ')')();
+      // 1. Lưu Provider
+      localStorage.setItem('STORAGE_PROVIDER_5S', storageProvider);
+
+      // 2. Lưu Supabase Config
+      saveSupabaseConfigToStorage({
+        url: supabaseUrlInput.trim(),
+        anonKey: supabaseAnonKeyInput.trim(),
+        bucket: supabaseBucketInput.trim() || 'qms-5s-images'
+      });
+
+      // 3. Lưu Firebase Config nếu có nhập
+      if (configJsonInput.trim()) {
+        let configObj = null;
+        if (configJsonInput.trim().startsWith('{')) {
+          configObj = JSON.parse(configJsonInput);
+        } else if (configJsonInput.includes('apiKey')) {
+          const cleaned = configJsonInput.replace(/const firebaseConfig =/g, '').replace(/;/g, '');
+          configObj = Function('"use strict";return (' + cleaned + ')')();
+        }
+
+        if (configObj && configObj.apiKey && configObj.projectId) {
+          saveFirebaseConfigToStorage(configObj);
+          setFirebaseConfig(configObj);
+          initFirebase(configObj);
+          setIsFirebaseConnected(true);
+        }
       }
 
-      if (!configObj || !configObj.apiKey || !configObj.projectId) {
-        alert("Cấu hình Firebase không hợp lệ! Vui lòng nhập đúng JSON chứa apiKey và projectId.");
-        return;
-      }
-
-      saveFirebaseConfigToStorage(configObj);
-      setFirebaseConfig(configObj);
-      initFirebase(configObj);
-      setIsFirebaseConnected(true);
       setShowSettings(false);
-      setConfigJsonInput('');
-      setToastMessage('Đã kết nối thành công Firebase Cloud Real-time!');
+      setToastMessage('✅ Đã lưu cấu hình Cài Đặt Hệ Thống thành công!');
       setShowSavedToast(true);
       setTimeout(() => setShowSavedToast(false), 3000);
     } catch (err) {
-      alert("Lỗi đọc mã Firebase Config: " + err.message);
+      alert("Lỗi lưu cấu hình: " + err.message);
     }
   };
+  const handleSaveFirebaseConfig = handleSaveAllSettings;
 
   const saveReport = async () => {
     if (!department) {
@@ -742,6 +802,32 @@ export default function App() {
     };
   }, [hospitalDatabase]);
 
+// Helper lấy danh sách lỗi S của từng vị trí
+const getSErrorsText = (r) => {
+  if (!r || !r.criteria) return '';
+  const errors = [];
+  if (r.criteria[0] === false) errors.push("S1 (Không sàng lọc)");
+  if (r.criteria[1] === false || r.criteria[2] === false || r.criteria[3] === false) errors.push("S2 (Không sắp xếp)");
+  if (r.criteria[4] === false) errors.push("S3 (Không sạch sẽ)");
+  if (r.criteria[5] === false) errors.push("S4 (Không duy trì)");
+  if (r.criteria[6] === true) errors.push("S5 (Không sẵn sàng)");
+  return errors.length > 0 ? `Lỗi ${errors.join(', ')}` : '';
+};
+
+const getCaptionWithSErrors = (r) => {
+  if (!r) return '';
+  const sErrorStr = getSErrorsText(r);
+  const rawNote = typeof r === 'string' ? r : r.note;
+  const noteStr = (rawNote && rawNote !== "Chưa có ghi chú") ? rawNote : "";
+  if (sErrorStr && noteStr) {
+    return `${sErrorStr}: ${noteStr}`;
+  }
+  if (sErrorStr) {
+    return sErrorStr;
+  }
+  return noteStr || "";
+};
+
   // Hình ảnh thực tế tại 5 đơn vị lỗi 5S nhiều nhất (Chỉ lấy ảnh các vị trí LỖI/CHƯA ĐẠT 5S)
   const top5FailedUnitsImages = useMemo(() => {
     const currentSystemStats = dashboardStats[activeSubDashboard];
@@ -762,7 +848,8 @@ export default function App() {
                 date: ev.date,
                 location: r.location,
                 image: img,
-                note: r.note || "Chưa có ghi chú",
+                note: r.note || "",
+                criteria: r.criteria,
                 isPassed
               });
             });
@@ -789,35 +876,100 @@ export default function App() {
       {/* FIREBASE SETTINGS MODAL */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="bg-blue-700 text-white p-4 flex justify-between items-center">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-blue-700 text-white p-4 flex justify-between items-center shrink-0">
               <h3 className="font-bold text-base flex items-center gap-2">
-                <Cloud size={20} /> Cài đặt Firebase Cloud Real-time
+                <Cloud size={20} /> Cài đặt & Kho Lưu Trữ (Storage System)
               </h3>
               <button onClick={() => setShowSettings(false)} className="text-white/80 hover:text-white">
                 <X size={20} />
               </button>
             </div>
             
-            <div className="p-5 space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-900 space-y-1">
-                <p className="font-bold flex items-center gap-1">
-                  <Zap size={14} className="text-blue-600" /> Tối ưu kết nối Real-time & Multi-user:
-                </p>
-                <p className="text-[11px] leading-relaxed text-blue-800">
-                  Dán chuỗi <strong>firebaseConfig</strong> (JSON hoặc object) tạo từ Firebase Console vào đây để kết nối Cloud Real-time.
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+              {/* Mục 1: Lựa chọn Nguồn Lưu Trữ Ảnh */}
+              <div className="space-y-1.5 bg-slate-50 border p-3.5 rounded-xl">
+                <label className="text-xs font-black text-slate-800 uppercase flex items-center gap-1.5">
+                  <Database size={15} className="text-blue-600" /> Nguồn Lưu Trữ Ảnh (Storage System):
+                </label>
+                <select 
+                  value={storageProvider} 
+                  onChange={e => setStorageProvider(e.target.value)}
+                  className="w-full text-xs font-bold p-2.5 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="supabase">🟢 Supabase Cloud Storage (Miễn phí 1GB, Không cần thẻ Visa)</option>
+                  <option value="firebase">🔥 Firebase Storage (Miễn phí 5GB, Cần thẻ Visa)</option>
+                  <option value="local">💾 Nén Base64 Cục bộ (Lưu trực tiếp vào Firestore / LocalStorage)</option>
+                </select>
+                <p className="text-[11px] text-slate-500 italic">
+                  {storageProvider === 'supabase' && "Tự động tải ảnh nén lên Supabase Storage bucket hoàn toàn miễn phí."}
+                  {storageProvider === 'firebase' && "Tải ảnh lên Firebase Storage (Cần kích hoạt gói Blaze trên Firebase Console)."}
+                  {storageProvider === 'local' && "Lưu trực tiếp ảnh nén Base64 vào cơ sở dữ liệu."}
                 </p>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700 uppercase">Dán Firebase Config Object tại đây:</label>
-                <textarea 
-                  rows={6}
-                  placeholder={`{\n  "apiKey": "AIzaSy...",\n  "authDomain": "ninhbinh-5s.firebaseapp.com",\n  "projectId": "ninhbinh-5s"\n}`}
-                  className="w-full text-xs p-3 border-2 border-slate-200 rounded-xl focus:border-blue-500 outline-none transition-colors font-mono resize-none"
-                  value={configJsonInput}
-                  onChange={(e) => setConfigJsonInput(e.target.value)}
-                />
+              {/* Mục 2: Cấu hình Supabase (Hiện khi chọn Supabase) */}
+              {storageProvider === 'supabase' && (
+                <div className="space-y-3 bg-emerald-50/50 border border-emerald-200 p-3.5 rounded-xl">
+                  <h4 className="text-xs font-bold text-emerald-900 uppercase flex items-center gap-1">
+                    🟢 Cấu hình Supabase Cloud Storage:
+                  </h4>
+                  <div className="space-y-2 text-xs">
+                    <div>
+                      <label className="font-bold text-slate-700">Project URL:</label>
+                      <input 
+                        type="text" 
+                        placeholder="https://xyzcompany.supabase.co" 
+                        value={supabaseUrlInput} 
+                        onChange={e => setSupabaseUrlInput(e.target.value)} 
+                        className="w-full p-2 border rounded-lg font-mono text-xs mt-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-slate-700">Anon Public Key:</label>
+                      <input 
+                        type="password" 
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." 
+                        value={supabaseAnonKeyInput} 
+                        onChange={e => setSupabaseAnonKeyInput(e.target.value)} 
+                        className="w-full p-2 border rounded-lg font-mono text-xs mt-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-slate-700">Tên Storage Bucket:</label>
+                      <input 
+                        type="text" 
+                        placeholder="qms-5s-images" 
+                        value={supabaseBucketInput} 
+                        onChange={e => setSupabaseBucketInput(e.target.value)} 
+                        className="w-full p-2 border rounded-lg font-mono text-xs mt-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Mục 3: Cấu hình Firebase Real-time Database */}
+              <div className="space-y-2 border-t pt-3">
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-900 space-y-1">
+                  <p className="font-bold flex items-center gap-1">
+                    <Zap size={14} className="text-blue-600" /> Firebase Cloud Real-time Database:
+                  </p>
+                  <p className="text-[11px] leading-relaxed text-blue-800">
+                    Dán chuỗi <strong>firebaseConfig</strong> tạo từ Firebase Console vào đây để đồng bộ dữ liệu chấm thời gian thực giữa nhiều máy.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase">Dán Firebase Config Object tại đây:</label>
+                  <textarea 
+                    rows={3}
+                    placeholder={`{\n  "apiKey": "AIzaSy...",\n  "authDomain": "ninhbinh-5s.firebaseapp.com",\n  "projectId": "ninhbinh-5s"\n}`}
+                    className="w-full text-xs p-3 border-2 border-slate-200 rounded-xl focus:border-blue-500 outline-none transition-colors font-mono resize-none"
+                    value={configJsonInput}
+                    onChange={(e) => setConfigJsonInput(e.target.value)}
+                  />
+                </div>
               </div>
             </div>
 
@@ -829,37 +981,12 @@ export default function App() {
                 Hủy
               </button>
               <button 
-                onClick={handleSaveFirebaseConfig}
+                onClick={handleSaveAllSettings}
                 className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow flex items-center gap-1.5"
               >
-                <Save size={14} /> Lưu & Kết nối Cloud
+                <Save size={14} /> Lưu & Kết nối Hệ Thống
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* FULL IMAGE PREVIEW MODAL */}
-      {viewImageModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => setViewImageModal(null)}>
-          <div className="relative bg-white rounded-2xl overflow-hidden max-w-3xl w-full shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="bg-slate-900 text-white p-3 px-4 flex justify-between items-center">
-              <div>
-                <h4 className="font-bold text-sm">{viewImageModal.department}</h4>
-                <p className="text-[11px] text-slate-300">Vị trí: {viewImageModal.location} • Người kiểm tra: {viewImageModal.inspector || 'Đoàn kiểm tra'}</p>
-              </div>
-              <button onClick={() => setViewImageModal(null)} className="text-slate-400 hover:text-white p-1">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-3 bg-black flex items-center justify-center max-h-[75vh]">
-              <img src={viewImageModal.image} alt="Bằng chứng 5S" className="max-h-[70vh] object-contain rounded-lg shadow" />
-            </div>
-            {viewImageModal.note && (
-              <div className="p-4 bg-slate-50 border-t border-slate-200 text-xs text-slate-700">
-                <strong className="text-slate-900">Ghi chú lỗi:</strong> {viewImageModal.note}
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -1523,7 +1650,7 @@ export default function App() {
                                             <label className="cursor-pointer space-y-1 flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-4 hover:border-blue-300 hover:bg-blue-50/50 transition-all">
                                               <ImageIcon size={28} className="text-slate-400" />
                                               <span className="text-xs font-bold text-blue-600">Bấm chụp hoặc chọn ảnh</span>
-                                              <span className="text-[10px] text-slate-400">Hỗ trợ chọn nhiều ảnh (Tối đa 3 ảnh)</span>
+                                              <span className="text-[10px] text-slate-400">Hỗ trợ chọn nhiều ảnh (Tối đa 30 ảnh / vị trí)</span>
                                               <input 
                                                 type="file" 
                                                 accept="image/*" 
@@ -1853,10 +1980,17 @@ export default function App() {
                                 {imgItem.isPassed ? 'Đạt' : 'Chưa đạt'}
                               </span>
                             </div>
-                            <div className="p-2 space-y-0.5">
+                            <div className="p-2 space-y-1 bg-white">
                               <p className="text-[11px] font-bold text-slate-900 truncate">{imgItem.department}</p>
                               <p className="text-[10px] text-slate-600 font-medium truncate">Vị trí: {imgItem.location}</p>
-                              <p className="text-[9px] text-slate-400 italic truncate">"{imgItem.note}"</p>
+                              {getSErrorsText(imgItem) ? (
+                                <div className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded truncate">
+                                  ⚠️ {getSErrorsText(imgItem)}
+                                </div>
+                              ) : null}
+                              {imgItem.note && imgItem.note !== "Chưa có ghi chú" ? (
+                                <p className="text-[9px] text-slate-500 italic truncate">📝 Ghi chú: {imgItem.note}</p>
+                              ) : null}
                             </div>
                           </div>
                         ))}
@@ -1954,26 +2088,92 @@ export default function App() {
                         <h4 className="font-extrabold text-xs text-red-700 uppercase flex items-center justify-between border-b pb-1">
                           <span>⚠️ Danh sách vị trí KHÔNG ĐẠT 5S ({selectedUnitForReport.rows.filter(r => !(r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).length})</span>
                         </h4>
-                        {selectedUnitForReport.rows.filter(r => !(r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).length === 0 ? (
-                          <p className="text-xs text-emerald-700 italic bg-emerald-50 p-3 rounded-lg border border-emerald-200 text-center">🎉 Đơn vị đạt chuẩn 100% 5S (Không có vị trí vi phạm)</p>
-                        ) : (
-                          selectedUnitForReport.rows.filter(r => !(r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).map((r, i) => (
-                            <div key={i} className="bg-red-50/50 p-3 rounded-xl border border-red-100 space-y-2">
-                              <div className="flex justify-between items-center">
-                                <span className="font-bold text-xs text-slate-800">{r.location}</span>
-                                <span className="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Chưa đạt</span>
-                              </div>
-                              {r.note && <p className="text-xs text-slate-700 bg-white p-2 rounded border border-red-200 font-medium">Ghi chú lỗi: {r.note}</p>}
-                              {getRowImages(r).length > 0 && (
-                                <div className="flex gap-2 flex-wrap pt-1">
-                                  {getRowImages(r).map((imgUrl, imgIdx) => (
-                                    <img key={imgIdx} src={imgUrl} alt={r.location} className="w-16 h-16 object-cover rounded-lg border cursor-pointer hover:scale-105 transition-transform" onClick={() => setViewImageModal({ department: selectedUnitForReport.department, location: r.location, inspector: selectedUnitForReport.inspector, image: imgUrl, note: r.note })} />
-                                  ))}
+                        {(() => {
+                          const failedRows = selectedUnitForReport.rows.filter(r => !(r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false));
+                          if (failedRows.length === 0) {
+                            return <p className="text-xs text-emerald-700 italic bg-emerald-50 p-3 rounded-lg border border-emerald-200 text-center">🎉 Đơn vị đạt chuẩn 100% 5S (Không có vị trí vi phạm)</p>;
+                          }
+                          const failedImagesList = [];
+                          failedRows.forEach(r => {
+                            const imgs = getRowImages(r);
+                            if (imgs.length > 0) {
+                              imgs.forEach(imgUrl => {
+                                failedImagesList.push({
+                                  department: selectedUnitForReport.department,
+                                  location: r.location,
+                                  inspector: selectedUnitForReport.inspector || r.inspector,
+                                  image: imgUrl,
+                                  criteria: r.criteria,
+                                  note: r.note,
+                                  isPassed: false
+                                });
+                              });
+                            } else {
+                              failedImagesList.push({
+                                department: selectedUnitForReport.department,
+                                location: r.location,
+                                inspector: selectedUnitForReport.inspector || r.inspector,
+                                image: null,
+                                criteria: r.criteria,
+                                note: r.note,
+                                isPassed: false
+                              });
+                            }
+                          });
+
+                          return (
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              {failedImagesList.map((imgItem, idx) => (
+                                <div 
+                                  key={idx} 
+                                  onClick={() => imgItem.image && setViewImageModal({
+                                    department: imgItem.department,
+                                    location: imgItem.location,
+                                    inspector: imgItem.inspector,
+                                    image: imgItem.image,
+                                    note: getCaptionWithSErrors(imgItem)
+                                  })}
+                                  className={`group bg-slate-50 rounded-xl border border-slate-200 overflow-hidden ${imgItem.image ? 'cursor-pointer hover:shadow-md' : ''} transition-all relative flex flex-col justify-between`}
+                                >
+                                  <div className="h-32 bg-slate-200 overflow-hidden relative flex items-center justify-center">
+                                    {imgItem.image ? (
+                                      <>
+                                        <img src={imgItem.image} alt={imgItem.location} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                        <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-red-600 text-white shadow-sm">
+                                          Chưa đạt
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <div className="text-center p-2 text-slate-400">
+                                        <Camera size={24} className="mx-auto mb-1 opacity-50 text-slate-500" />
+                                        <span className="text-[10px] italic block">Không có ảnh</span>
+                                        <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-red-600 text-white shadow-sm">
+                                          Chưa đạt
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="p-2 space-y-1 bg-white flex-1 flex flex-col justify-between">
+                                    <div>
+                                      <p className="text-[11px] font-bold text-slate-900 truncate">{imgItem.department}</p>
+                                      <p className="text-[10px] text-slate-600 font-medium truncate">Vị trí: {imgItem.location}</p>
+                                    </div>
+                                    <div className="space-y-1 mt-1">
+                                      {getSErrorsText(imgItem) ? (
+                                        <div className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded truncate">
+                                          ⚠️ {getSErrorsText(imgItem)}
+                                        </div>
+                                      ) : null}
+                                      {imgItem.note && imgItem.note !== "Chưa có ghi chú" ? (
+                                        <p className="text-[9px] text-slate-500 italic truncate">📝 Ghi chú: {imgItem.note}</p>
+                                      ) : null}
+                                    </div>
+                                  </div>
                                 </div>
-                              )}
+                              ))}
                             </div>
-                          ))
-                        )}
+                          );
+                        })()}
                       </div>
 
                       {/* Mục 2: Vị trí ĐẠT 5S (Bao gồm ảnh bằng chứng vị trí đạt) */}
@@ -2101,6 +2301,31 @@ export default function App() {
           </main>
         )}
       </div>
+
+      {/* FULL IMAGE PREVIEW MODAL (Placed at root level with high z-index to overlay unit report modals) */}
+      {viewImageModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-4" onClick={() => setViewImageModal(null)}>
+          <div className="relative bg-white rounded-2xl overflow-hidden max-w-3xl w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="bg-slate-900 text-white p-3 px-4 flex justify-between items-center">
+              <div>
+                <h4 className="font-bold text-sm">{viewImageModal.department}</h4>
+                <p className="text-[11px] text-slate-300">Vị trí: {viewImageModal.location} • Người kiểm tra: {viewImageModal.inspector || 'Đoàn kiểm tra'}</p>
+              </div>
+              <button onClick={() => setViewImageModal(null)} className="text-slate-400 hover:text-white p-1">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-3 bg-black flex items-center justify-center max-h-[75vh]">
+              <img src={viewImageModal.image} alt="Bằng chứng 5S" className="max-h-[70vh] object-contain rounded-lg shadow" />
+            </div>
+            {viewImageModal.note && (
+              <div className="p-4 bg-slate-50 border-t border-slate-200 text-xs text-slate-700">
+                <strong className="text-slate-900">Chi tiết ghi chú / Lỗi 5S:</strong> {viewImageModal.note}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
