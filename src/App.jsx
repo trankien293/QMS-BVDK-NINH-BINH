@@ -298,6 +298,7 @@ export default function App() {
   });
   const [selectedUnitForReport, setSelectedUnitForReport] = useState(null);
   const [viewImageModal, setViewImageModal] = useState(null);
+  const [editingEvalId, setEditingEvalId] = useState(null);
 
   // Form State
   const [department, setDepartment] = useState(() => draftForm?.department || '');
@@ -610,9 +611,10 @@ export default function App() {
     }
 
     const detectedSystem = DEPT_SYSTEM_MAP[department] || "LAM_SANG";
+    const targetId = editingEvalId || `eval-${Date.now()}`;
 
     const newEvaluation = {
-      id: `eval-${Date.now()}`,
+      id: targetId,
       department,
       system: detectedSystem,
       inspector: inspector || "Đoàn kiểm tra chất lượng",
@@ -623,9 +625,12 @@ export default function App() {
 
     setIsSaving(true);
     try {
-      // 1. Cập nhật dữ liệu cục bộ tức thì -> Không phụ thuộc hoàn toàn vào Cloud
+      // 1. Cập nhật dữ liệu cục bộ tức thì (Ghi đè nếu đang sửa, Thêm mới nếu tạo mới)
       setHospitalDatabase(prev => {
-        const updated = [newEvaluation, ...prev.filter(e => e.id !== newEvaluation.id)];
+        const exists = prev.some(item => item.id === targetId);
+        const updated = exists 
+          ? prev.map(item => item.id === targetId ? newEvaluation : item)
+          : [newEvaluation, ...prev];
         try {
           localStorage.setItem('HOSPITAL_DATABASE_5S', JSON.stringify(updated));
         } catch (e) {
@@ -634,11 +639,12 @@ export default function App() {
         return updated;
       });
 
-      setToastMessage('✅ Đã lưu kết quả đánh giá thành công!');
+      setToastMessage(editingEvalId ? '✏️ Đã CẬP NHẬT GHI ĐÈ thành công phiên chấm 5S!' : '✅ Đã lưu kết quả đánh giá thành công!');
       setShowSavedToast(true);
       setTimeout(() => setShowSavedToast(false), 3000);
 
-      // Reset Form
+      // Reset Form & Editing State
+      setEditingEvalId(null);
       setDepartment('');
       setDeptSearch('');
       setInspector('');

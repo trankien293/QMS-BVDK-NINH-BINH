@@ -78,29 +78,55 @@
       break-inside: avoid !important;
     }
 
+    /* Đảm bảo Font chữ tiếng Việt chuẩn xác, không bị vỡ/lỗi font khi xuất PDF hoặc In */
+    #printable-pdf-report, #printable-unit-pdf-report {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Arial, 'Inter', Roboto, sans-serif !important;
+    }
+    #printable-pdf-report *, #printable-unit-pdf-report * {
+      font-family: inherit !important;
+    }
+
     @media print {
+      html, body {
+        height: auto !important;
+        min-height: 100% !important;
+        overflow: visible !important;
+        background: white !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
       * {
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
         color-adjust: exact !important;
-        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
       }
       body * {
         visibility: hidden !important;
       }
-      #printable-pdf-report, #printable-pdf-report * {
+      #printable-pdf-report, #printable-pdf-report *,
+      #printable-unit-pdf-report, #printable-unit-pdf-report * {
         visibility: visible !important;
       }
-      #printable-pdf-report {
+      /* Giải phóng hoàn toàn các lớp bao ngoài Modal để không bị cắt trang trắng */
+      .fixed, .overflow-hidden, .overflow-y-auto, [class*="max-h-"] {
+        position: static !important;
+        overflow: visible !important;
+        max-height: none !important;
+        height: auto !important;
+      }
+      #printable-pdf-report, #printable-unit-pdf-report {
         position: absolute !important;
         left: 0 !important;
         top: 0 !important;
         width: 100% !important;
-        max-width: 100% !important;
+        min-width: 100% !important;
         margin: 0 !important;
         padding: 15px !important;
         background: white !important;
         color: #0f172a !important;
+        box-sizing: border-box !important;
+        overflow: visible !important;
+        height: auto !important;
       }
       .no-print {
         display: none !important;
@@ -525,6 +551,8 @@
         setTimeout(() => setShowSavedToast(false), 3000);
       };
 
+      const [editingEvalId, setEditingEvalId] = useState(null);
+
       const handleDeleteEvaluationSession = (evalId) => {
         if (!isAdminLoggedIn) {
           setShowPasswordModal(true);
@@ -539,8 +567,20 @@
                 const imgs = getRowImages(r);
                 imagesToDelete.push(...imgs);
               });
-              if (imagesToDelete.length > 0) {
-                deleteFromSupabaseStorage(imagesToDelete).catch(err => console.warn("Lỗi xóa ảnh Supabase:", err));
+
+              // CHỈ xóa ảnh trên Supabase nếu ảnh đó KHÔNG còn được sử dụng ở bất kỳ phiên chấm nào khác
+              const otherSessionsImages = new Set();
+              hospitalDatabase
+                .filter(ev => ev.id !== evalId)
+                .forEach(ev => {
+                  ev.rows?.forEach(r => {
+                    getRowImages(r).forEach(url => otherSessionsImages.add(url));
+                  });
+                });
+
+              const safeImagesToDelete = imagesToDelete.filter(url => !otherSessionsImages.has(url));
+              if (safeImagesToDelete.length > 0) {
+                deleteFromSupabaseStorage(safeImagesToDelete).catch(err => console.warn("Lỗi xóa ảnh Supabase:", err));
               }
             }
           } catch (err) {
@@ -550,7 +590,10 @@
           if (isFirebaseConnected && dbRef) {
             dbRef.collection('evaluations_5s').doc(evalId).delete().catch(err => console.warn("Lỗi xóa Firebase:", err));
           }
-          setToastMessage("🗑️ Đã xóa thành công phiên chấm 5S và các ảnh đính kèm!");
+          if (editingEvalId === evalId) {
+            setEditingEvalId(null);
+          }
+          setToastMessage("🗑️ Đã xóa thành công phiên chấm 5S!");
           setShowSavedToast(true);
           setTimeout(() => setShowSavedToast(false), 3000);
           setSelectedUnitForReport(null);
@@ -562,6 +605,7 @@
           setShowPasswordModal(true);
           return;
         }
+        setEditingEvalId(ev.id);
         setDepartment(ev.department);
         setDeptSearch(ev.department);
         setInspector(ev.inspector || '');
@@ -570,7 +614,7 @@
         setCurrentModule('MODULE_5S');
         setActiveTab('EVALUATION');
         setSelectedUnitForReport(null);
-        setToastMessage("✏️ Đã nạp dữ liệu phiên chấm vào Form để Admin chỉnh sửa!");
+        setToastMessage(`✏️ Đang chỉnh sửa phiên chấm mã: ${ev.id}`);
         setShowSavedToast(true);
         setTimeout(() => setShowSavedToast(false), 3000);
       };
@@ -608,6 +652,8 @@
       const [selectedUnitForReport, setSelectedUnitForReport] = useState(null);
       const [viewImageModal, setViewImageModal] = useState(null);
       const [printSubsystemModal, setPrintSubsystemModal] = useState(null);
+      const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+      const [pdfProgressText, setPdfProgressText] = useState('');
 
       // Tự động lưu vĩnh viễn vào LocalStorage
       useEffect(() => {
@@ -666,6 +712,122 @@
           } catch(err) { alert("Lỗi đọc file: " + err.message); }
         };
         reader.readAsText(file);
+      };
+
+      // Xuất PDF chuẩn hóa A4, chống lỗi font tiếng Việt và chống trang trắng do ảnh/scroll
+      const exportReportToPdf = async (elementId, filename) => {
+        const element = document.getElementById(elementId);
+        if (!element) {
+          alert("Không tìm thấy nội dung báo cáo để xuất!");
+          return;
+        }
+        if (!window.html2pdf) {
+          alert("Thư viện xuất PDF chưa sẵn sàng, hệ thống sẽ mở cửa sổ in trực tiếp...");
+          window.print();
+          return;
+        }
+
+        try {
+          setIsGeneratingPdf(true);
+          setPdfProgressText('Đang kiểm tra font chữ & chuẩn bị...');
+
+          // 1. Chờ Font chữ sẵn sàng
+          if (document.fonts && document.fonts.ready) {
+            await document.fonts.ready;
+          }
+
+          // 2. Chờ tất cả ảnh tải xong và gán crossOrigin="anonymous"
+          setPdfProgressText('Đang tải và đồng bộ dữ liệu hình ảnh...');
+          const images = Array.from(element.querySelectorAll('img'));
+          images.forEach(img => {
+            if (!img.crossOrigin) {
+              img.crossOrigin = 'anonymous';
+            }
+          });
+
+          const imagePromises = images.map((img) => {
+            return new Promise((resolve) => {
+              if (img.complete && img.naturalWidth !== 0) {
+                resolve();
+                return;
+              }
+              const timer = setTimeout(() => {
+                resolve(); // Timeout an toàn 3500ms để không treo báo cáo nếu mạng chậm
+              }, 3500);
+
+              img.onload = () => {
+                clearTimeout(timer);
+                resolve();
+              };
+              img.onerror = () => {
+                clearTimeout(timer);
+                try {
+                  img.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='1.5'><rect x='3' y='3' width='18' height='18' rx='2'/><circle cx='8.5' cy='8.5' r='1.5'/><path d='M21 15l-5-5L5 21'/></svg>";
+                } catch(e) {}
+                resolve();
+              };
+            });
+          });
+
+          await Promise.race([
+            Promise.all(imagePromises),
+            new Promise(r => setTimeout(r, 4000))
+          ]);
+
+          setPdfProgressText('Đang kết xuất tệp PDF sắc nét...');
+
+          // 3. Reset scroll và mở rộng chiều cao container để html2canvas không bị cắt trang trắng
+          const originalScrollTop = element.scrollTop;
+          element.scrollTop = 0;
+          window.scrollTo(0, 0);
+
+          const originalOverflow = element.style.overflow;
+          const originalMaxHeight = element.style.maxHeight;
+          const originalHeight = element.style.height;
+
+          element.style.overflow = 'visible';
+          element.style.maxHeight = 'none';
+          element.style.height = 'auto';
+
+          // Đợi 250ms cho trình duyệt tính toán lại layout
+          await new Promise(r => setTimeout(r, 250));
+
+          // 4. Cấu hình html2pdf chuẩn A4
+          const opt = {
+            margin: [8, 8, 8, 8],
+            filename: filename,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: {
+              scale: 2,
+              useCORS: true,
+              allowTaint: false,
+              scrollY: 0,
+              scrollX: 0,
+              logging: false,
+              backgroundColor: '#ffffff'
+            },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+          };
+
+          await window.html2pdf().set(opt).from(element).save();
+
+          // Khôi phục styles ban đầu
+          element.style.overflow = originalOverflow;
+          element.style.maxHeight = originalMaxHeight;
+          element.style.height = originalHeight;
+          element.scrollTop = originalScrollTop;
+
+          setToastMessage('✅ Đã xuất tệp PDF thành công!');
+          setShowSavedToast(true);
+          setTimeout(() => setShowSavedToast(false), 3000);
+        } catch (err) {
+          console.error("Lỗi khi xuất PDF:", err);
+          alert("Có lỗi trong quá trình tạo PDF: " + (err.message || err) + "\nBạn có thể chọn nút 'In Trực Tiếp' rồi chọn 'Save as PDF' để lưu file.");
+        } finally {
+          setIsGeneratingPdf(false);
+          setPdfProgressText('');
+        }
       };
 
       // Form state & Phân công đánh giá 5S
@@ -1131,8 +1293,9 @@
         if (!inspector) return alert("Vui lòng nhập Tên người đánh giá!");
 
         const detectedSystem = DEPT_SYSTEM_MAP[department] || "LAM_SANG";
+        const targetId = editingEvalId || `eval-${Date.now()}`;
         const newEval = {
-          id: `eval-${Date.now()}`,
+          id: targetId,
           department,
           system: detectedSystem,
           inspector,
@@ -1143,13 +1306,22 @@
 
         setIsSaving(true);
 
-        // 1. Cập nhật dữ liệu cục bộ tức thì -> Người dùng không bao giờ phải chờ quay tròn!
-        setHospitalDatabase(prev => [newEval, ...prev]);
-        setToastMessage('✅ Đã lưu kết quả đánh giá thành công!');
+        // 1. Cập nhật dữ liệu cục bộ tức thì: Ghi đè phiên cũ nếu đang sửa, hoặc thêm mới
+        setHospitalDatabase(prev => {
+          const exists = prev.some(item => item.id === targetId);
+          if (exists) {
+            return prev.map(item => item.id === targetId ? newEval : item);
+          } else {
+            return [newEval, ...prev];
+          }
+        });
+
+        setToastMessage(editingEvalId ? '✏️ Đã CẬP NHẬT GHI ĐÈ thành công phiên chấm 5S!' : '✅ Đã lưu kết quả đánh giá thành công!');
         setShowSavedToast(true);
         setTimeout(() => setShowSavedToast(false), 3000);
 
-        // 2. Reset form ngay lập tức cho người dùng tiếp tục công việc
+        // 2. Reset form & xóa trạng thái đang sửa
+        setEditingEvalId(null);
         setDepartment(''); 
         setDeptSearch(''); 
         setInspector('');
@@ -1161,10 +1333,10 @@
           try {
             const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase Timeout")), 3000));
             await Promise.race([
-              dbRef.collection('evaluations_5s').doc(newEval.id).set(newEval),
+              dbRef.collection('evaluations_5s').doc(targetId).set(newEval),
               timeoutPromise
             ]);
-            setToastMessage('⚡ Đã lưu Real-time lên Cloud Firebase!');
+            setToastMessage('⚡ Đã cập nhật Real-time lên Cloud Firebase!');
           } catch (err) {
             console.warn("Đồng bộ Firebase chậm/offline, dữ liệu đã lưu an toàn vào máy:", err);
           }
@@ -1454,62 +1626,120 @@
 
 
 
-          {/* 📋 DETAILED UNIT 5S REPORT MODAL */}
+          {/* 📋 DETAILED UNIT 5S REPORT MODAL (WITH PDF EXPORT) */}
           {selectedUnitForReport && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 md:p-6" onClick={() => setSelectedUnitForReport(null)}>
-              <div className="bg-white rounded-3xl overflow-hidden max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl border" onClick={e => e.stopPropagation()}>
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-2 md:p-6" onClick={() => setSelectedUnitForReport(null)}>
+              <div className="bg-white rounded-3xl overflow-hidden max-w-5xl w-full max-h-[92vh] flex flex-col shadow-2xl border" onClick={e => e.stopPropagation()}>
 
-                {/* Modal Header */}
-                <div className="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 text-white p-5 px-6 flex justify-between items-start shrink-0">
-                  <div className="space-y-1">
-                    <span className="bg-white/20 text-white px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider">Báo cáo đánh giá chi tiết</span>
-                    <h3 className="text-lg md:text-xl font-black uppercase">{selectedUnitForReport.department}</h3>
-                    <p className="text-xs text-blue-100 italic">
-                      👤 Người kiểm tra: <strong>{selectedUnitForReport.inspector || 'Đoàn kiểm tra'}</strong> • 📅 Ngày đánh giá: <strong>{selectedUnitForReport.date || 'Gần đây'}</strong>
-                    </p>
+                {/* Modal Controls Header (no-print) */}
+                <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-4 px-6 flex justify-between items-center shrink-0 no-print">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">🖨️</span>
+                    <div>
+                      <h3 className="font-black text-base uppercase">Xem Trước Báo Cáo PDF - {selectedUnitForReport.department}</h3>
+                      <p className="text-xs text-blue-200">Đầy đủ số liệu chi tiết, danh sách vị trí vi phạm và hình ảnh bằng chứng</p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => window.print()}
-                      className="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 border border-white/20"
+                      disabled={isGeneratingPdf}
+                      onClick={() => {
+                        exportReportToPdf(
+                          'printable-unit-pdf-report',
+                          `BaoCao_5S_${selectedUnitForReport.department.replace(/\s+/g, '_')}_NinhBinh.pdf`
+                        );
+                      }}
+                      className={`bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-black transition-all shadow flex items-center gap-1.5 ${isGeneratingPdf ? 'opacity-70 cursor-not-allowed' : ''}`}
                     >
-                      🖨️ In Báo Cáo
+                      {isGeneratingPdf ? (
+                        <>
+                          <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                          <span>{pdfProgressText || 'Đang tạo PDF...'}</span>
+                        </>
+                      ) : (
+                        <>📥 LƯU FILE PDF CHUẨN ĐẸP</>
+                      )}
+                    </button>
+                    <button
+                      disabled={isGeneratingPdf}
+                      onClick={async () => {
+                        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+                        window.print();
+                      }}
+                      className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 border border-white/20"
+                    >
+                      🖨️ In Trực Tiếp
                     </button>
                     <button
                       onClick={() => setSelectedUnitForReport(null)}
-                      className="bg-white/10 hover:bg-white/20 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm"
+                      className="bg-white/10 hover:bg-white/20 text-white w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm ml-1"
                     >
                       ✕
                     </button>
                   </div>
                 </div>
 
-                {/* Modal Scrollable Body */}
-                <div className="p-5 md:p-6 overflow-y-auto space-y-6 flex-1 bg-slate-50/50">
+                {/* Printable Report Body */}
+                <div className="p-6 md:p-8 overflow-y-auto space-y-6 flex-1 bg-white text-slate-900" id="printable-unit-pdf-report">
+                  
+                  {/* Header Báo cáo chính thức chuẩn Bệnh viện */}
+                  <div className="border-b-2 border-blue-900 pb-4 space-y-3 pdf-page-break-avoid">
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="flex items-center gap-3">
+                        <img src="./logo-benh-vien.jpg" alt="Logo" crossOrigin="anonymous" className="w-14 h-14 rounded-full border border-blue-200 object-cover" />
+                        <div>
+                          <h4 className="font-black text-xs md:text-sm text-blue-950 uppercase tracking-wide">BỆNH VIỆN ĐA KHOA TỈNH NINH BÌNH</h4>
+                          <p className="text-xs font-extrabold text-blue-800 uppercase">PHÒNG QUẢN LÝ CHẤT LƯỢNG BỆNH VIỆN</p>
+                        </div>
+                      </div>
+                      <div className="text-right text-[11px] text-slate-500 italic">
+                        <p>Kỳ báo cáo: <strong>{selectedMonth === 'ALL' ? 'Tất cả các kỳ' : `Tháng ${selectedMonth}`}</strong></p>
+                        <p>Ngày xuất: <strong>{new Date().toLocaleDateString('vi-VN')}</strong></p>
+                        <p>Đoàn đánh giá: <strong>{selectedUnitForReport.inspector || 'Đoàn kiểm tra 5S'}</strong></p>
+                      </div>
+                    </div>
 
-                  {/* Summary Stats Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="bg-white p-3.5 rounded-2xl border border-blue-100 shadow-sm text-center">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">Tổng số vị trí</span>
-                      <p className="text-2xl font-black text-slate-800">{selectedUnitForReport.total}</p>
-                    </div>
-                    <div className="bg-emerald-50 p-3.5 rounded-2xl border border-emerald-200 shadow-sm text-center">
-                      <span className="text-[10px] font-bold text-emerald-700 uppercase">Vị trí Đạt 5S</span>
-                      <p className="text-2xl font-black text-emerald-800">{selectedUnitForReport.passed}</p>
-                    </div>
-                    <div className="bg-blue-50 p-3.5 rounded-2xl border border-blue-200 shadow-sm text-center">
-                      <span className="text-[10px] font-bold text-blue-700 uppercase">Tỷ lệ Đạt 5S</span>
-                      <p className="text-2xl font-black text-blue-900">{selectedUnitForReport.percentage}%</p>
-                    </div>
-                    <div className="bg-red-50 p-3.5 rounded-2xl border border-red-200 shadow-sm text-center">
-                      <span className="text-[10px] font-bold text-red-700 uppercase">Vị trí Chưa Đạt</span>
-                      <p className="text-2xl font-black text-red-800">{selectedUnitForReport.failed}</p>
+                    <div className="text-center pt-2">
+                      <h2 className="text-xl md:text-2xl font-black text-blue-900 uppercase tracking-wide">BÁO CÁO KẾT QUẢ ĐÁNH GIÁ CHẤT LƯỢNG 5S</h2>
+                      <p className="text-base font-black text-indigo-700 uppercase tracking-wide mt-0.5">{selectedUnitForReport.department}</p>
                     </div>
                   </div>
 
-                  {/* 🔑 ADMIN CONTROLS: LIST OF EVALUATION SESSIONS FOR THIS UNIT (CHỈ HIỂN THỊ KHI ĐĂNG NHẬP ADMIN) */}
+                  {/* Phần 1: Bảng tổng hợp số liệu 5S */}
+                  <div className="space-y-3 pdf-page-break-avoid">
+                    <h3 className="font-black text-sm uppercase text-slate-900 flex items-center gap-2 border-b pb-1">
+                      <span>📊 I. TỔNG HỢP KẾT QUẢ THỰC HIỆN 5S</span>
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 shadow-xs text-center">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">Tổng số vị trí kiểm tra</span>
+                        <p className="text-2xl font-black text-slate-800 mt-1">{selectedUnitForReport.total}</p>
+                      </div>
+                      <div className="bg-emerald-50 p-3.5 rounded-2xl border border-emerald-200 shadow-xs text-center">
+                        <span className="text-[10px] font-bold text-emerald-700 uppercase">Vị trí Đạt chuẩn 5S</span>
+                        <p className="text-2xl font-black text-emerald-800 mt-1">{selectedUnitForReport.passed}</p>
+                      </div>
+                      <div className="bg-red-50 p-3.5 rounded-2xl border border-red-200 shadow-xs text-center">
+                        <span className="text-[10px] font-bold text-red-700 uppercase">Vị trí Chưa Đạt / Vi phạm</span>
+                        <p className="text-2xl font-black text-red-800 mt-1">{selectedUnitForReport.failed}</p>
+                      </div>
+                      <div className="bg-blue-50 p-3.5 rounded-2xl border border-blue-200 shadow-xs text-center">
+                        <span className="text-[10px] font-bold text-blue-700 uppercase">Tỷ lệ Đạt chuẩn</span>
+                        <p className="text-2xl font-black text-blue-900 mt-1">{selectedUnitForReport.percentage}%</p>
+                        <span className={`inline-block mt-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
+                          parseFloat(selectedUnitForReport.percentage) >= 90 ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                          parseFloat(selectedUnitForReport.percentage) >= 75 ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                          'bg-red-100 text-red-800 border-red-300'
+                        }`}>
+                          {parseFloat(selectedUnitForReport.percentage) >= 90 ? 'Xuất sắc' : parseFloat(selectedUnitForReport.percentage) >= 75 ? 'Khá/Tốt' : 'Cần cải thiện'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 🔑 ADMIN CONTROLS: Quản lý các đợt chấm (Ẩn hoàn toàn khi In/Xuất PDF: no-print) */}
                   {isAdminLoggedIn && (
-                    <div className="bg-amber-50/90 border border-amber-200/90 rounded-2xl p-4 space-y-3 shadow-xs">
+                    <div className="bg-amber-50/90 border border-amber-200/90 rounded-2xl p-4 space-y-3 shadow-xs no-print">
                       <div className="flex items-center justify-between">
                         <h4 className="font-extrabold text-xs text-amber-900 uppercase flex items-center gap-1.5">
                           <span>🔑 Quản lý các đợt chấm điểm 5S của đơn vị ({hospitalDatabase.filter(ev => ev.department === selectedUnitForReport.department).length} đợt)</span>
@@ -1552,12 +1782,12 @@
                     </div>
                   )}
 
-                  {/* Compact Failed Locations Table */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between border-b pb-2">
-                      <h4 className="font-extrabold text-sm uppercase text-slate-800 flex items-center gap-2">
-                        <span>⚠️ Danh sách vị trí KHÔNG ĐẠT 5S</span>
-                      </h4>
+                  {/* Phần 2: Danh sách vị trí KHÔNG ĐẠT 5S & Bằng chứng vi phạm thực tế */}
+                  <div className="space-y-3 pt-2 pdf-page-break-avoid">
+                    <div className="flex items-center justify-between border-b pb-1">
+                      <h3 className="font-black text-sm uppercase text-slate-900 flex items-center gap-2">
+                        <span>⚠️ II. DANH SÁCH VỊ TRÍ KHÔNG ĐẠT & BẰNG CHỨNG HÌNH ẢNH VI PHẠM</span>
+                      </h3>
                       <span className="text-xs text-red-600 font-bold bg-red-50 border border-red-200 px-2.5 py-0.5 rounded-full">
                         {(() => {
                           const fCount = selectedUnitForReport.rows ? selectedUnitForReport.rows.filter(r => !(r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).length : 0;
@@ -1573,10 +1803,10 @@
 
                       if (failedRows.length === 0) {
                         return (
-                          <div className="p-8 text-center bg-emerald-50/80 rounded-2xl border border-emerald-200 space-y-2">
-                            <span className="text-3xl">🎉</span>
-                            <h5 className="font-extrabold text-emerald-900 text-sm">Đơn vị đạt chuẩn 100% 5S!</h5>
-                            <p className="text-xs text-emerald-700 italic">Tất cả các vị trí kiểm tra của {selectedUnitForReport.department} đều đạt yêu cầu chất lượng.</p>
+                          <div className="p-6 text-center bg-emerald-50/80 rounded-2xl border border-emerald-200 space-y-1.5">
+                            <span className="text-3xl block">🎉</span>
+                            <h5 className="font-black text-emerald-900 text-sm uppercase">Đơn vị đạt chuẩn 100% 5S!</h5>
+                            <p className="text-xs text-emerald-700 italic">Tất cả các vị trí kiểm tra của {selectedUnitForReport.department} đều đạt tiêu chuẩn, không có lỗi vi phạm.</p>
                           </div>
                         );
                       }
@@ -1590,6 +1820,7 @@
                               department: selectedUnitForReport.department,
                               location: r.location,
                               inspector: r.inspector || selectedUnitForReport.inspector,
+                              date: r.date || selectedUnitForReport.date,
                               image: imgUrl,
                               criteria: r.criteria,
                               note: r.note,
@@ -1601,6 +1832,7 @@
                             department: selectedUnitForReport.department,
                             location: r.location,
                             inspector: r.inspector || selectedUnitForReport.inspector,
+                            date: r.date || selectedUnitForReport.date,
                             image: null,
                             criteria: r.criteria,
                             note: r.note,
@@ -1610,7 +1842,7 @@
                       });
 
                       return (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                           {failedImagesList.map((imgItem, idx) => (
                             <div 
                               key={idx} 
@@ -1621,13 +1853,19 @@
                                 image: imgItem.image,
                                 note: getCaptionWithSErrors(imgItem)
                               })}
-                              className={`group bg-slate-50 rounded-xl border border-slate-200 overflow-hidden ${imgItem.image ? 'cursor-pointer hover:shadow-md' : ''} transition-all relative flex flex-col justify-between`}
+                              className={`bg-white border rounded-xl overflow-hidden shadow-xs space-y-1.5 p-2.5 pdf-page-break-avoid ${imgItem.image ? 'cursor-pointer hover:shadow-md' : ''} transition-all`}
                             >
-                              <div className="h-32 bg-slate-200 overflow-hidden relative flex items-center justify-center">
+                              <div className="h-36 bg-slate-100 rounded-lg overflow-hidden flex items-center justify-center relative">
                                 {imgItem.image ? (
                                   <>
-                                    <img src={imgItem.image} alt={imgItem.location} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                                    <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-red-600 text-white shadow-sm">
+                                    <img 
+                                      src={imgItem.image} 
+                                      alt={imgItem.location} 
+                                      crossOrigin="anonymous"
+                                      onError={e => { e.target.onerror = null; e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='1.5'><rect x='3' y='3' width='18' height='18' rx='2'/><circle cx='8.5' cy='8.5' r='1.5'/><path d='M21 15l-5-5L5 21'/></svg>"; }} 
+                                      className="max-h-full max-w-full object-contain" 
+                                    />
+                                    <span className="absolute top-1.5 right-1.5 text-[9px] font-black px-2 py-0.5 rounded-full bg-red-600 text-white shadow-xs">
                                       Chưa đạt
                                     </span>
                                   </>
@@ -1635,20 +1873,17 @@
                                   <div className="text-center p-2 text-slate-400">
                                     <span className="text-2xl block mb-1">📷</span>
                                     <span className="text-[10px] italic block">Không có ảnh</span>
-                                    <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-red-600 text-white shadow-sm">
+                                    <span className="absolute top-1.5 right-1.5 text-[9px] font-black px-2 py-0.5 rounded-full bg-red-600 text-white shadow-xs">
                                       Chưa đạt
                                     </span>
                                   </div>
                                 )}
                               </div>
-                              <div className="p-2 space-y-0.5 bg-white flex-1 flex flex-col justify-between">
-                                <div>
-                                  <p className="text-[11px] font-bold text-slate-900 truncate">{imgItem.department}</p>
-                                  <p className="text-[10px] text-slate-600 font-medium truncate">Vị trí: {imgItem.location}</p>
-                                </div>
-                                <p className="text-[9px] text-red-700 italic line-clamp-2 font-semibold mt-1">
-                                  "{getCaptionWithSErrors(imgItem)}"
-                                </p>
+                              <div className="text-[11px] space-y-0.5">
+                                <p className="font-extrabold text-blue-900 truncate">{imgItem.department}</p>
+                                <p className="font-bold text-slate-800 truncate">Vị trí: {imgItem.location}</p>
+                                <p className="text-red-600 font-bold italic line-clamp-2">Lỗi: {getCaptionWithSErrors(imgItem) || "Chưa đạt tiêu chí 5S"}</p>
+                                <p className="text-[10px] text-slate-400">📅 {imgItem.date || 'Gần đây'} • 👤 {imgItem.inspector || 'Đoàn kiểm tra'}</p>
                               </div>
                             </div>
                           ))}
@@ -1657,12 +1892,12 @@
                     })()}
                   </div>
 
-                  {/* Danh sách vị trí ĐẠT 5S (Bao gồm hình ảnh bằng chứng vị trí đạt) */}
-                  <div className="space-y-3 pt-4 border-t">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-extrabold text-sm uppercase text-slate-800 flex items-center gap-2">
-                        <span>✅ Danh sách vị trí ĐẠT 5S</span>
-                      </h4>
+                  {/* Phần 3: Danh sách các vị trí ĐẠT 5S */}
+                  <div className="space-y-3 pt-4 border-t pdf-page-break-avoid">
+                    <div className="flex items-center justify-between border-b pb-1">
+                      <h3 className="font-black text-sm uppercase text-slate-900 flex items-center gap-2">
+                        <span>✅ III. DANH SÁCH CÁC VỊ TRÍ ĐẠT TIÊU CHUẨN 5S</span>
+                      </h3>
                       <span className="text-xs text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
                         {(() => {
                           const pCount = selectedUnitForReport.rows ? selectedUnitForReport.rows.filter(r => (r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false)).length : 0;
@@ -1679,85 +1914,120 @@
                       if (passedRows.length === 0) {
                         return (
                           <div className="p-4 text-center bg-slate-50 rounded-xl border border-slate-200">
-                            <p className="text-xs text-slate-500 italic">Chưa có vị trí nào đạt chuẩn 5S trong đợt này.</p>
+                            <p className="text-xs text-slate-500 italic">Chưa có vị trí nào đạt chuẩn 5S trong kỳ đánh giá này.</p>
                           </div>
                         );
                       }
 
                       return (
-                        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                              <thead>
-                                <tr className="bg-emerald-50/80 text-emerald-900 text-[11px] font-black uppercase tracking-wider border-b">
-                                  <th className="p-3 text-center w-12">STT</th>
-                                  <th className="p-3 w-1/3">Vị trí Đạt 5S</th>
-                                  <th className="p-3">Ghi chú / Đánh giá</th>
-                                  <th className="p-3 text-center w-36">Hình ảnh đính kèm</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y text-xs">
-                                {passedRows.map((row, idx) => {
-                                  const imgs = getRowImages(row);
-                                  return (
-                                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                      <td className="p-3 text-center font-black text-slate-500">
-                                        {idx + 1}
-                                      </td>
-                                      <td className="p-3 font-extrabold text-slate-900">
-                                        <div>{row.location}</div>
-                                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full inline-block mt-1">
-                                          ✓ Đạt 7 tiêu chí 5S
-                                        </span>
-                                      </td>
-                                      <td className="p-3">
-                                        {row.note ? (
-                                          <p className="text-slate-800 font-medium bg-slate-50 p-2 rounded-lg border border-slate-200 text-[11px]">
-                                            📝 {row.note}
-                                          </p>
-                                        ) : (
-                                          <span className="text-slate-400 italic text-[11px]">Gọn gàng, sạch sẽ, đạt chuẩn 5S</span>
-                                        )}
-                                      </td>
-                                      <td className="p-3 text-center">
-                                        {imgs.length > 0 ? (
-                                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                                            {imgs.map((imgUrl, imgIdx) => (
-                                              <div
-                                                key={imgIdx}
-                                                onClick={() => setViewImageModal({ department: selectedUnitForReport.department, location: row.location, inspector: selectedUnitForReport.inspector, image: imgUrl, note: row.note })}
-                                                className="relative inline-block w-12 h-12 rounded-lg overflow-hidden border cursor-pointer group shadow-sm bg-slate-100"
-                                              >
-                                                <img src={imgUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
-                                              </div>
-                                            ))}
-                                          </div>
-                                        ) : (
-                                          <span className="text-slate-400 italic text-[11px]">Không có ảnh</span>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
+                        <div className="border rounded-xl overflow-hidden shadow-xs">
+                          <table className="w-full text-xs text-left border-collapse">
+                            <thead>
+                              <tr className="bg-blue-900 text-white font-extrabold uppercase">
+                                <th className="p-2.5 text-center w-12 border-r border-blue-800">STT</th>
+                                <th className="p-2.5 border-r border-blue-800 w-1/3">Vị trí Đạt 5S</th>
+                                <th className="p-2.5 border-r border-blue-800">Ghi chú & Đánh giá</th>
+                                <th className="p-2.5 text-center w-36">Hình ảnh đính kèm</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y text-xs">
+                              {passedRows.map((row, idx) => {
+                                const imgs = getRowImages(row);
+                                return (
+                                  <tr key={idx} className={idx % 2 === 0 ? 'bg-slate-50/70' : 'bg-white'}>
+                                    <td className="p-2.5 text-center font-bold text-slate-600 border-r border-slate-200">{idx + 1}</td>
+                                    <td className="p-2.5 font-bold text-slate-900 border-r border-slate-200">
+                                      <div>{row.location}</div>
+                                      <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full inline-block mt-1 border border-emerald-200">
+                                        ✓ Đạt chuẩn 5S
+                                      </span>
+                                    </td>
+                                    <td className="p-2.5 text-slate-700 border-r border-slate-200">
+                                      {row.note ? (
+                                        <p className="font-medium text-[11px]">📝 {row.note}</p>
+                                      ) : (
+                                        <span className="text-slate-400 italic text-[11px]">Gọn gàng, sạch sẽ, đạt yêu cầu</span>
+                                      )}
+                                    </td>
+                                    <td className="p-2.5 text-center">
+                                      {imgs.length > 0 ? (
+                                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                          {imgs.map((imgUrl, imgIdx) => (
+                                            <div
+                                              key={imgIdx}
+                                              onClick={() => setViewImageModal({ department: selectedUnitForReport.department, location: row.location, inspector: selectedUnitForReport.inspector, image: imgUrl, note: row.note })}
+                                              className="relative inline-block w-12 h-12 rounded-lg overflow-hidden border cursor-pointer group shadow-xs bg-slate-100"
+                                            >
+                                              <img 
+                                                src={imgUrl} 
+                                                onError={e => { e.target.onerror = null; e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23059669' stroke-width='1.5'><rect x='3' y='3' width='18' height='18' rx='2'/><circle cx='8.5' cy='8.5' r='1.5'><path d='M21 15l-5-5L5 21'/></svg>"; }} 
+                                                className="w-full h-full object-cover group-hover:scale-110 transition-transform" 
+                                              />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-400 italic text-[11px]">Không có ảnh</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
                       );
                     })()}
                   </div>
 
+                  {/* Phần 4: Chữ ký xác nhận chuẩn văn bản y tế */}
+                  <div className="pt-6 border-t flex justify-between text-center text-xs font-bold pdf-page-break-avoid">
+                    <div className="space-y-1">
+                      <p className="uppercase text-slate-700">LÃNH ĐẠO KHOA / PHÒNG</p>
+                      <p className="text-[10px] text-slate-400 italic">(Ký và ghi rõ họ tên)</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="uppercase text-slate-700">TRƯỞNG ĐOÀN ĐÁNH GIÁ 5S</p>
+                      <p className="text-[10px] text-slate-400 italic">(Ký và ghi rõ họ tên)</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="uppercase text-slate-700">PHÒNG QUẢN LÝ CHẤT LƯỢNG</p>
+                      <p className="text-[10px] text-slate-400 italic">(Ký và ghi rõ họ tên)</p>
+                    </div>
+                  </div>
+
                 </div>
 
-                {/* Modal Footer */}
-                <div className="bg-slate-100 p-4 border-t flex justify-between items-center shrink-0">
+                {/* Modal Footer (no-print) */}
+                <div className="bg-slate-100 p-4 px-6 border-t flex justify-between items-center shrink-0 no-print">
                   <span className="text-xs text-slate-500 italic font-semibold">Hệ thống Quản lý Chất lượng Bệnh viện Đa khoa tỉnh Ninh Bình</span>
-                  <button
-                    onClick={() => setSelectedUnitForReport(null)}
-                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow transition-colors"
-                  >
-                    Đóng Báo Cáo
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      disabled={isGeneratingPdf}
+                      onClick={() => {
+                        exportReportToPdf(
+                          'printable-unit-pdf-report',
+                          `BaoCao_5S_${selectedUnitForReport.department.replace(/\s+/g, '_')}_NinhBinh.pdf`
+                        );
+                      }}
+                      className={`px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow transition-colors flex items-center gap-1.5 ${isGeneratingPdf ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {isGeneratingPdf ? (
+                        <>
+                          <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                          <span>{pdfProgressText || 'Đang xuất PDF...'}</span>
+                        </>
+                      ) : (
+                        <>📥 Tải File PDF</>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setSelectedUnitForReport(null)}
+                      className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow transition-colors"
+                    >
+                      Đóng Báo Cáo
+                    </button>
+                  </div>
                 </div>
 
               </div>
@@ -1818,25 +2088,33 @@
                     </div>
                     <div className="flex items-center gap-2">
                       <button
+                        disabled={isGeneratingPdf}
                         onClick={() => {
-                          const element = document.getElementById('printable-pdf-report');
-                          if (element && window.html2pdf) {
-                            const opt = {
-                              margin: [8, 8, 8, 8],
-                              filename: `BaoCao_5S_${sysTitle.replace(/\s+/g, '_')}_NinhBinh.pdf`,
-                              image: { type: 'jpeg', quality: 0.98 },
-                              html2canvas: { scale: 2, useCORS: true, logging: false },
-                              jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                              pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-                            };
-                            window.html2pdf().set(opt).from(element).save();
-                          } else {
-                            window.print();
-                          }
+                          exportReportToPdf(
+                            'printable-pdf-report',
+                            `BaoCao_5S_${sysTitle.replace(/\s+/g, '_')}_NinhBinh.pdf`
+                          );
                         }}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-black transition-all shadow flex items-center gap-1.5"
+                        className={`bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-black transition-all shadow flex items-center gap-1.5 ${isGeneratingPdf ? 'opacity-70 cursor-not-allowed' : ''}`}
                       >
-                        📥 LƯU FILE PDF CHUẨN ĐẸP
+                        {isGeneratingPdf ? (
+                          <>
+                            <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                            <span>{pdfProgressText || 'Đang tạo PDF...'}</span>
+                          </>
+                        ) : (
+                          <>📥 LƯU FILE PDF CHUẨN ĐẸP</>
+                        )}
+                      </button>
+                      <button
+                        disabled={isGeneratingPdf}
+                        onClick={async () => {
+                          if (document.fonts && document.fonts.ready) await document.fonts.ready;
+                          window.print();
+                        }}
+                        className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 border border-white/20"
+                      >
+                        🖨️ In Trực Tiếp
                       </button>
                       <button
                         onClick={() => setPrintSubsystemModal(null)}
@@ -1854,7 +2132,7 @@
                     <div className="border-b-2 border-blue-900 pb-4 space-y-3 pdf-page-break-avoid">
                       <div className="flex justify-between items-start gap-4">
                         <div className="flex items-center gap-3">
-                          <img src="./logo-benh-vien.jpg" alt="Logo" className="w-14 h-14 rounded-full border border-blue-200 object-cover" />
+                          <img src="./logo-benh-vien.jpg" alt="Logo" crossOrigin="anonymous" className="w-14 h-14 rounded-full border border-blue-200 object-cover" />
                           <div>
                             <h4 className="font-black text-xs md:text-sm text-blue-950 uppercase tracking-wide">BỆNH VIỆN ĐA KHOA TỈNH NINH BÌNH</h4>
                             <p className="text-xs font-extrabold text-blue-800 uppercase">PHÒNG QUẢN LÝ CHẤT LƯỢNG BỆNH VIỆN</p>
@@ -1996,7 +2274,13 @@
                           {sysImages.map((imgItem, idx) => (
                             <div key={idx} className="bg-white border rounded-xl overflow-hidden shadow-xs space-y-1.5 p-2 pdf-page-break-avoid">
                               <div className="h-36 bg-slate-100 rounded-lg overflow-hidden flex items-center justify-center">
-                                <img src={imgItem.image} alt="Bằng chứng" className="max-h-full max-w-full object-contain" />
+                                <img 
+                                  src={imgItem.image} 
+                                  alt="Bằng chứng" 
+                                  crossOrigin="anonymous"
+                                  onError={e => { e.target.onerror = null; e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='1.5'><rect x='3' y='3' width='18' height='18' rx='2'/><circle cx='8.5' cy='8.5' r='1.5'/><path d='M21 15l-5-5L5 21'/></svg>"; }} 
+                                  className="max-h-full max-w-full object-contain" 
+                                />
                               </div>
                               <div className="text-[11px] space-y-0.5">
                                 <p className="font-extrabold text-blue-900 truncate">{imgItem.department}</p>
@@ -2024,6 +2308,38 @@
                       </div>
                     </div>
 
+                  </div>
+
+                  {/* Modal Footer (no-print) */}
+                  <div className="bg-slate-100 p-4 px-6 border-t flex justify-between items-center shrink-0 no-print">
+                    <span className="text-xs text-slate-500 italic font-semibold">Hệ thống Quản lý Chất lượng Bệnh viện Đa khoa tỉnh Ninh Bình</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        disabled={isGeneratingPdf}
+                        onClick={() => {
+                          exportReportToPdf(
+                            'printable-pdf-report',
+                            `BaoCao_5S_${sysTitle.replace(/\s+/g, '_')}_NinhBinh.pdf`
+                          );
+                        }}
+                        className={`px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow transition-colors flex items-center gap-1.5 ${isGeneratingPdf ? 'opacity-70 cursor-not-allowed' : ''}`}
+                      >
+                        {isGeneratingPdf ? (
+                          <>
+                            <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                            <span>{pdfProgressText || 'Đang xuất PDF...'}</span>
+                          </>
+                        ) : (
+                          <>📥 Tải File PDF</>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setPrintSubsystemModal(null)}
+                        className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow transition-colors"
+                      >
+                        Đóng Báo Cáo
+                      </button>
+                    </div>
                   </div>
 
                 </div>
@@ -2721,7 +3037,7 @@
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                             {top5FailedUnitsImages.map((imgItem, idx) => (
                               <div key={idx} onClick={() => setViewImageModal(imgItem)} className="bg-slate-50 rounded-lg border overflow-hidden cursor-pointer hover:shadow-md transition-all">
-                                <img src={imgItem.image} className="h-28 w-full object-cover" />
+                                <img src={imgItem.image} onError={e => { e.target.onerror = null; e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='1.5'><rect x='3' y='3' width='18' height='18' rx='2'/><circle cx='8.5' cy='8.5' r='1.5'/><path d='M21 15l-5-5L5 21'/></svg>"; }} className="h-28 w-full object-cover" />
                                 <div className="p-2 text-[10px] space-y-1 bg-white">
                                   <p className="font-bold truncate text-slate-900">{imgItem.department}</p>
                                   <p className="text-slate-600 truncate font-semibold">Vị trí: {imgItem.location}</p>
