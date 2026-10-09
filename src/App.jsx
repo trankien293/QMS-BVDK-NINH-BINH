@@ -37,7 +37,10 @@ import {
   ArrowRight,
   Stethoscope,
   Briefcase,
-  FlaskConical
+  FlaskConical,
+  ChevronLeft,
+  ChevronRight,
+  Filter
 } from 'lucide-react';
 import { 
   getStoredFirebaseConfig, 
@@ -300,6 +303,39 @@ export default function App() {
   const [viewImageModal, setViewImageModal] = useState(null);
   const [editingEvalId, setEditingEvalId] = useState(null);
 
+  // State Lọc Báo cáo (Theo Tháng / Quý / Năm / Tất cả)
+  const [reportFilterMode, setReportFilterMode] = useState('MONTH'); // 'MONTH' | 'QUARTER' | 'YEAR' | 'ALL'
+  const [selectedReportYear, setSelectedReportYear] = useState(2026);
+  const [selectedReportMonth, setSelectedReportMonth] = useState(7);
+  const [selectedReportQuarter, setSelectedReportQuarter] = useState(3);
+  const [showCalendarPicker, setShowCalendarPicker] = useState(false);
+  const calendarPickerRef = useRef(null);
+
+  // Lọc dữ liệu hospitalDatabase theo Thời gian chọn
+  const filteredHospitalDatabase = useMemo(() => {
+    return hospitalDatabase.filter(ev => {
+      if (!ev.date) return true;
+      const parts = ev.date.split('-');
+      if (parts.length < 2) return true;
+      const evYear = parseInt(parts[0], 10);
+      const evMonth = parseInt(parts[1], 10);
+
+      if (isNaN(evYear) || isNaN(evMonth)) return true;
+
+      if (reportFilterMode === 'MONTH') {
+        return evYear === selectedReportYear && evMonth === selectedReportMonth;
+      }
+      if (reportFilterMode === 'QUARTER') {
+        const evQuarter = Math.ceil(evMonth / 3);
+        return evYear === selectedReportYear && evQuarter === selectedReportQuarter;
+      }
+      if (reportFilterMode === 'YEAR') {
+        return evYear === selectedReportYear;
+      }
+      return true; // 'ALL'
+    });
+  }, [hospitalDatabase, reportFilterMode, selectedReportYear, selectedReportMonth, selectedReportQuarter]);
+
   // Form State
   const [department, setDepartment] = useState(() => draftForm?.department || '');
   const [inspector, setInspector] = useState(() => draftForm?.inspector || '');
@@ -397,6 +433,9 @@ export default function App() {
     const handleClickOutside = (event) => {
       if (suggestionRef.current && !suggestionRef.current.contains(event.target)) {
         setShowSuggestions(false);
+      }
+      if (calendarPickerRef.current && !calendarPickerRef.current.contains(event.target)) {
+        setShowCalendarPicker(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -686,7 +725,7 @@ export default function App() {
   // Thống kê Dashboard 5S đầy đủ
   const dashboardStats = useMemo(() => {
     const generateSystemStats = (systemCode) => {
-      const evals = hospitalDatabase.filter(e => e.system === systemCode);
+      const evals = filteredHospitalDatabase.filter(e => e.system === systemCode);
       
       const rankMap = {};
       evals.forEach(ev => {
@@ -777,12 +816,12 @@ export default function App() {
       LAM_SANG: generateSystemStats('LAM_SANG'),
       CAN_LAM_SANG: generateSystemStats('CAN_LAM_SANG')
     };
-  }, [hospitalDatabase]);
+  }, [filteredHospitalDatabase]);
 
   // Thống kê Top 5 đv lỗi 5S của từng phân hệ cho Trang chủ
   const homeTop5FailedStats = useMemo(() => {
     const getTop5 = (systemCode) => {
-      const evals = hospitalDatabase.filter(e => e.system === systemCode);
+      const evals = filteredHospitalDatabase.filter(e => e.system === systemCode);
       const map = {};
       evals.forEach(ev => {
         let failed = 0;
@@ -806,7 +845,7 @@ export default function App() {
       PHONG_BAN: getTop5('PHONG_BAN'),
       CAN_LAM_SANG: getTop5('CAN_LAM_SANG')
     };
-  }, [hospitalDatabase]);
+  }, [filteredHospitalDatabase]);
 
 // Helper lấy danh sách lỗi S của từng vị trí
 const getSErrorsText = (r) => {
@@ -840,7 +879,7 @@ const getCaptionWithSErrors = (r) => {
     const top5UnitNames = currentSystemStats.failedUnits.map(u => u.label);
 
     const result = [];
-    hospitalDatabase.forEach(ev => {
+    filteredHospitalDatabase.forEach(ev => {
       if (ev.system === activeSubDashboard && top5UnitNames.includes(ev.department)) {
         ev.rows.forEach(r => {
           const isPassed = r.criteria.slice(0, 6).every(c => c === true) && r.criteria[6] === false;
@@ -865,7 +904,7 @@ const getCaptionWithSErrors = (r) => {
     });
 
     return result;
-  }, [hospitalDatabase, activeSubDashboard, dashboardStats]);
+  }, [filteredHospitalDatabase, activeSubDashboard, dashboardStats]);
 
   const currentStats = dashboardStats[activeSubDashboard];
 
@@ -1821,6 +1860,195 @@ const getCaptionWithSErrors = (r) => {
               {/* BÁO CÁO TỔNG HỢP CỦA MODULE 5S */}
               {activeTab === 'DASHBOARD' && (
                 <div className="space-y-6 animate-fade-in">
+                  {/* BAR BÁO CÁO THEO THỜI GIAN (THÁNG / QUÝ / NĂM / TẤT CẢ) */}
+                  <section className="bg-white rounded-2xl border border-blue-100 p-4 shadow-sm space-y-3">
+                    <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                      
+                      {/* Tùy chọn Chế độ Xem báo cáo */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5 mr-1">
+                          <Filter size={15} className="text-blue-600" /> Xem báo cáo theo:
+                        </span>
+                        
+                        <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => { setReportFilterMode('MONTH'); setShowCalendarPicker(true); }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                              reportFilterMode === 'MONTH' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-blue-600'
+                            }`}
+                          >
+                            Theo tháng
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReportFilterMode('QUARTER')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                              reportFilterMode === 'QUARTER' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-blue-600'
+                            }`}
+                          >
+                            Theo quý
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReportFilterMode('YEAR')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                              reportFilterMode === 'YEAR' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-blue-600'
+                            }`}
+                          >
+                            Theo năm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReportFilterMode('ALL')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                              reportFilterMode === 'ALL' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-blue-600'
+                            }`}
+                          >
+                            Tất cả lượt chấm
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Bộ chọn thời gian tương ứng */}
+                      <div className="flex items-center gap-3">
+                        
+                        {/* 1. THEO THÁNG: CHỌN QUA MENU KIỂU LỊCH */}
+                        {reportFilterMode === 'MONTH' && (
+                          <div className="relative" ref={calendarPickerRef}>
+                            <button
+                              type="button"
+                              onClick={() => setShowCalendarPicker(!showCalendarPicker)}
+                              className="px-4 py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl text-xs font-black text-blue-900 flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+                            >
+                              <Calendar size={16} className="text-blue-600" />
+                              <span>Tháng {String(selectedReportMonth).padStart(2, '0')}/{selectedReportYear}</span>
+                              <ChevronDown size={14} className={`transition-transform duration-200 ${showCalendarPicker ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            {/* POPUP MENU KIỂU LỊCH CHỌN THÁNG */}
+                            {showCalendarPicker && (
+                              <div className="absolute right-0 md:right-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 z-50 animate-in fade-in zoom-in duration-200">
+                                <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedReportYear(prev => prev - 1)}
+                                    className="p-1 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors cursor-pointer"
+                                    title="Năm trước"
+                                  >
+                                    <ChevronLeft size={18} />
+                                  </button>
+                                  <span className="font-black text-sm text-blue-900">Năm {selectedReportYear}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedReportYear(prev => prev + 1)}
+                                    className="p-1 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors cursor-pointer"
+                                    title="Năm sau"
+                                  >
+                                    <ChevronRight size={18} />
+                                  </button>
+                                </div>
+
+                                {/* Lưới 12 Tháng kiểu lịch */}
+                                <div className="grid grid-cols-3 gap-2">
+                                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => {
+                                    const isSelected = selectedReportMonth === m;
+                                    return (
+                                      <button
+                                        key={m}
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedReportMonth(m);
+                                          setShowCalendarPicker(false);
+                                        }}
+                                        className={`py-2.5 px-1 rounded-xl text-xs font-bold transition-all text-center cursor-pointer ${
+                                          isSelected
+                                            ? 'bg-blue-600 text-white shadow-md font-black scale-105'
+                                            : 'bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-100'
+                                        }`}
+                                      >
+                                        Tháng {m < 10 ? `0${m}` : m}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+
+                                <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const now = new Date();
+                                      setSelectedReportYear(now.getFullYear());
+                                      setSelectedReportMonth(now.getMonth() + 1);
+                                      setShowCalendarPicker(false);
+                                    }}
+                                    className="text-blue-600 font-extrabold hover:underline cursor-pointer"
+                                  >
+                                    Tháng hiện tại
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowCalendarPicker(false)}
+                                    className="text-slate-400 font-bold hover:text-slate-600 cursor-pointer"
+                                  >
+                                    Đóng
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 2. THEO QUÝ */}
+                        {reportFilterMode === 'QUARTER' && (
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={selectedReportQuarter}
+                              onChange={(e) => setSelectedReportQuarter(parseInt(e.target.value, 10))}
+                              className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs font-extrabold text-blue-900 outline-none cursor-pointer"
+                            >
+                              <option value={1}>Quý 1 (Tháng 1 - 3)</option>
+                              <option value={2}>Quý 2 (Tháng 4 - 6)</option>
+                              <option value={3}>Quý 3 (Tháng 7 - 9)</option>
+                              <option value={4}>Quý 4 (Tháng 10 - 12)</option>
+                            </select>
+
+                            <select
+                              value={selectedReportYear}
+                              onChange={(e) => setSelectedReportYear(parseInt(e.target.value, 10))}
+                              className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs font-extrabold text-blue-900 outline-none cursor-pointer"
+                            >
+                              {[2024, 2025, 2026, 2027, 2028].map(y => (
+                                <option key={y} value={y}>Năm {y}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        {/* 3. THEO NĂM */}
+                        {reportFilterMode === 'YEAR' && (
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={selectedReportYear}
+                              onChange={(e) => setSelectedReportYear(parseInt(e.target.value, 10))}
+                              className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs font-black text-blue-900 outline-none cursor-pointer shadow-xs"
+                            >
+                              {[2024, 2025, 2026, 2027, 2028].map(y => (
+                                <option key={y} value={y}>Năm {y}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        {/* 4. TẤT CẢ LƯỢT CHẤM */}
+                        {reportFilterMode === 'ALL' && (
+                          <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
+                            Tất cả ({filteredHospitalDatabase.length} đợt)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </section>
                   <section className="bg-white rounded-xl border border-blue-100 p-1.5 grid grid-cols-3 gap-1 shadow-sm">
                     <button 
                       onClick={() => setActiveSubDashboard('LAM_SANG')}

@@ -3,6 +3,9 @@
 
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hệ thống Quản lý Chất lượng Bệnh viện Đa khoa tỉnh Ninh Bình</title>
+
   <!-- App Icons & PWA Manifest -->
   <link rel="icon" type="image/png" sizes="64x64" href="./favicon.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
@@ -620,6 +623,12 @@
       const [activeTab, setActiveTab] = useState('EVALUATION');
       const [activeSubDashboard, setActiveSubDashboard] = useState('LAM_SANG');
       const [selectedMonth, setSelectedMonth] = useState('ALL');
+      const [reportFilterMode, setReportFilterMode] = useState('MONTH'); // 'MONTH' | 'QUARTER' | 'YEAR' | 'ALL'
+      const [selectedReportYear, setSelectedReportYear] = useState(2026);
+      const [selectedReportMonth, setSelectedReportMonth] = useState(7);
+      const [selectedReportQuarter, setSelectedReportQuarter] = useState(3);
+      const [showCalendarPicker, setShowCalendarPicker] = useState(false);
+      const calendarPickerRef = useRef(null);
       const [firebaseConfig, setFirebaseConfig] = useState(() => {
         try {
           const stored = localStorage.getItem('FIREBASE_CONFIG_5S');
@@ -671,11 +680,30 @@
         return Array.from(set).sort().reverse();
       }, [hospitalDatabase]);
 
-      // Dữ liệu đã được lọc theo Tháng/Năm chọn
+      // Dữ liệu đã được lọc theo Tháng / Quý / Năm / Tất cả
       const filteredHospitalDatabase = useMemo(() => {
-        if (selectedMonth === 'ALL') return hospitalDatabase;
-        return hospitalDatabase.filter(ev => ev.date && ev.date.startsWith(selectedMonth));
-      }, [hospitalDatabase, selectedMonth]);
+        return hospitalDatabase.filter(ev => {
+          if (!ev.date) return true;
+          const parts = ev.date.split('-');
+          if (parts.length < 2) return true;
+          const evYear = parseInt(parts[0], 10);
+          const evMonth = parseInt(parts[1], 10);
+
+          if (isNaN(evYear) || isNaN(evMonth)) return true;
+
+          if (reportFilterMode === 'MONTH') {
+            return evYear === selectedReportYear && evMonth === selectedReportMonth;
+          }
+          if (reportFilterMode === 'QUARTER') {
+            const evQuarter = Math.ceil(evMonth / 3);
+            return evYear === selectedReportYear && evQuarter === selectedReportQuarter;
+          }
+          if (reportFilterMode === 'YEAR') {
+            return evYear === selectedReportYear;
+          }
+          return true; // 'ALL'
+        });
+      }, [hospitalDatabase, reportFilterMode, selectedReportYear, selectedReportMonth, selectedReportQuarter]);
 
       // Export / Import Backup Data
       const handleExportData = () => {
@@ -832,7 +860,7 @@
       const [inspector, setInspector] = useState(() => draftForm?.inspector || '');
       const [date, setDate] = useState(() => draftForm?.date || new Date().toISOString().split('T')[0]);
       const [rows, setRows] = useState(() => (Array.isArray(draftForm?.rows) && draftForm.rows.length > 0) ? draftForm.rows : [
-        { id: `row-${Date.now()}-0`, location: 'Bàn làm việc số 1', criteria: [true, true, true, true, true, true, false], note: '', improvement: 0, image: null }
+        { id: `row-${Date.now()}-0`, location: 'Xe tiêm cấp cứu 1', criteria: [true, true, true, true, true, true, false], note: '', improvement: 0, image: null }
       ]);
       const [expandedRowId, setExpandedRowId] = useState(null);
       const [deptSearch, setDeptSearch] = useState(() => draftForm?.department || '');
@@ -890,11 +918,14 @@
         if (window.lucide) window.lucide.createIcons();
       });
 
-      // Đóng dropdown gợi ý Khoa/Phòng khi click ra ngoài khoảng trống
+      // Đóng dropdown gợi ý Khoa/Phòng và Popup Lịch khi click ra ngoài khoảng trống
       useEffect(() => {
         const handleClickOutside = (event) => {
           if (suggestionRef.current && !suggestionRef.current.contains(event.target)) {
             setShowSuggestions(false);
+          }
+          if (calendarPickerRef.current && !calendarPickerRef.current.contains(event.target)) {
+            setShowCalendarPicker(false);
           }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -1957,8 +1988,7 @@
                                             >
                                               <img 
                                                 src={imgUrl} 
-                                                crossOrigin="anonymous"
-                                                onError={e => { e.target.onerror = null; e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23059669' stroke-width='1.5'><rect x='3' y='3' width='18' height='18' rx='2'/><circle cx='8.5' cy='8.5' r='1.5'/><path d='M21 15l-5-5L5 21'/></svg>"; }} 
+                                                onError={e => { e.target.onerror = null; e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23059669' stroke-width='1.5'><rect x='3' y='3' width='18' height='18' rx='2'/><circle cx='8.5' cy='8.5' r='1.5'><path d='M21 15l-5-5L5 21'/></svg>"; }} 
                                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform" 
                                               />
                                             </div>
@@ -2889,7 +2919,7 @@
                         <button 
                           onClick={saveReport} 
                           disabled={isSaving} 
-                          className="flex-1 py-3.5 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-2xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+                          className="flex-1 py-3.5 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-2xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
                         >
                           {isSaving ? '⏳ Đang lưu kết quả...' : '💾 LƯU KẾT QUẢ ĐÁNH GIÁ 5S'}
                         </button>
@@ -2899,40 +2929,210 @@
 
                   {activeTab === 'DASHBOARD' && (
                     <div className="space-y-6">
-                      {/* 🗓️ MONTH SELECTOR & FILTER BAR IN MODULE 5S */}
-                      <div className="bg-white p-3.5 px-5 rounded-2xl border shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-slate-700 uppercase flex items-center gap-1">
-                            <span>🗓️</span> Xem Báo Cáo Theo Tháng:
-                          </span>
-                          <select
-                            value={selectedMonth}
-                            onChange={e => setSelectedMonth(e.target.value)}
-                            className="bg-slate-100 border border-slate-300 font-extrabold text-blue-900 px-3 py-1.5 rounded-xl outline-none focus:border-blue-500 cursor-pointer shadow-sm"
-                          >
-                            <option value="ALL">🌐 Tất cả các kỳ ({hospitalDatabase.length} lượt chấm)</option>
-                            {availableMonths.map(m => (
-                              <option key={m} value={m}>🗓️ Tháng {m.split('-')[1]}/{m.split('-')[0]}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <button 
-                            onClick={() => setPrintSubsystemModal(activeSubDashboard)} 
-                            className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black rounded-xl flex items-center gap-1.5 shadow-md transition-all scale-100 hover:scale-[1.02]"
-                          >
-                            🖨️ Xuất Báo Cáo PDF ({activeSubDashboard === 'LAM_SANG' ? 'Khối Lâm Sàng' : activeSubDashboard === 'PHONG_BAN' ? 'Khối Phòng Ban' : 'Khối Cận Lâm Sàng'})
-                          </button>
-                          {isAdminLoggedIn && (
-                            <>
-                              <button onClick={handleExportData} className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-bold rounded-xl flex items-center gap-1 transition-colors">
-                                📥 Xuất File Sao Lưu (JSON)
+                      {/* BAR BÁO CÁO THEO THỜI GIAN (THÁNG / QUÝ / NĂM / TẤT CẢ) */}
+                      <div className="bg-white p-4 rounded-2xl border shadow-sm space-y-3 text-xs">
+                        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                          
+                          {/* Chế độ lọc */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-extrabold text-slate-700 uppercase flex items-center gap-1.5 mr-1">
+                              <span>🗓️</span> Xem Báo Cáo:
+                            </span>
+                            
+                            <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200">
+                              <button
+                                type="button"
+                                onClick={() => { setReportFilterMode('MONTH'); setShowCalendarPicker(true); }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                  reportFilterMode === 'MONTH' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-blue-600'
+                                }`}
+                              >
+                                Theo tháng
                               </button>
-                              <button onClick={() => setShowSettings(true)} className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 font-bold rounded-xl flex items-center gap-1 transition-colors">
-                                ⚙️ Cài Đặt Cloud
+                              <button
+                                type="button"
+                                onClick={() => setReportFilterMode('QUARTER')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                  reportFilterMode === 'QUARTER' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-blue-600'
+                                }`}
+                              >
+                                Theo quý
                               </button>
-                            </>
-                          )}
+                              <button
+                                type="button"
+                                onClick={() => setReportFilterMode('YEAR')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                  reportFilterMode === 'YEAR' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-blue-600'
+                                }`}
+                              >
+                                Theo năm
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setReportFilterMode('ALL')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                  reportFilterMode === 'ALL' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-blue-600'
+                                }`}
+                              >
+                                Tất cả lượt chấm
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Controls chọn Tháng / Quý / Năm / Xuất PDF */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            
+                            {/* 1. CHẾ ĐỘ THEO THÁNG: MỞ POPUP KIỂU LỊCH */}
+                            {reportFilterMode === 'MONTH' && (
+                              <div className="relative" ref={calendarPickerRef}>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowCalendarPicker(!showCalendarPicker)}
+                                  className="px-4 py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl text-xs font-black text-blue-900 flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+                                >
+                                  <span>📅 Tháng {String(selectedReportMonth).padStart(2, '0')}/{selectedReportYear}</span>
+                                  <span className={`transition-transform duration-200 ${showCalendarPicker ? 'rotate-180' : ''}`}>▼</span>
+                                </button>
+
+                                {/* POPUP MENU KIỂU LỊCH CHỌN THÁNG */}
+                                {showCalendarPicker && (
+                                  <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 z-50 animate-in fade-in zoom-in duration-200">
+                                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedReportYear(prev => prev - 1)}
+                                        className="p-1 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors font-bold cursor-pointer"
+                                        title="Năm trước"
+                                      >
+                                        ◀
+                                      </button>
+                                      <span className="font-black text-sm text-blue-900">Năm {selectedReportYear}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedReportYear(prev => prev + 1)}
+                                        className="p-1 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors font-bold cursor-pointer"
+                                        title="Năm sau"
+                                      >
+                                        ▶
+                                      </button>
+                                    </div>
+
+                                    {/* Lưới 12 Tháng kiểu lịch */}
+                                    <div className="grid grid-cols-3 gap-2">
+                                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => {
+                                        const isSelected = selectedReportMonth === m;
+                                        return (
+                                          <button
+                                            key={m}
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedReportMonth(m);
+                                              setShowCalendarPicker(false);
+                                            }}
+                                            className={`py-2.5 px-1 rounded-xl text-xs font-bold transition-all text-center cursor-pointer ${
+                                              isSelected
+                                                ? 'bg-blue-600 text-white shadow-md font-black scale-105'
+                                                : 'bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-100'
+                                            }`}
+                                          >
+                                            Tháng {m < 10 ? `0${m}` : m}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+
+                                    <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const now = new Date();
+                                          setSelectedReportYear(now.getFullYear());
+                                          setSelectedReportMonth(now.getMonth() + 1);
+                                          setShowCalendarPicker(false);
+                                        }}
+                                        className="text-blue-600 font-extrabold hover:underline cursor-pointer"
+                                      >
+                                        Tháng hiện tại
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowCalendarPicker(false)}
+                                        className="text-slate-400 font-bold hover:text-slate-600 cursor-pointer"
+                                      >
+                                        Đóng
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* 2. THEO QUÝ */}
+                            {reportFilterMode === 'QUARTER' && (
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={selectedReportQuarter}
+                                  onChange={(e) => setSelectedReportQuarter(parseInt(e.target.value, 10))}
+                                  className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs font-extrabold text-blue-900 outline-none cursor-pointer"
+                                >
+                                  <option value={1}>Quý 1 (Tháng 1 - 3)</option>
+                                  <option value={2}>Quý 2 (Tháng 4 - 6)</option>
+                                  <option value={3}>Quý 3 (Tháng 7 - 9)</option>
+                                  <option value={4}>Quý 4 (Tháng 10 - 12)</option>
+                                </select>
+
+                                <select
+                                  value={selectedReportYear}
+                                  onChange={(e) => setSelectedReportYear(parseInt(e.target.value, 10))}
+                                  className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs font-extrabold text-blue-900 outline-none cursor-pointer"
+                                >
+                                  {[2024, 2025, 2026, 2027, 2028].map(y => (
+                                    <option key={y} value={y}>Năm {y}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            {/* 3. THEO NĂM */}
+                            {reportFilterMode === 'YEAR' && (
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={selectedReportYear}
+                                  onChange={(e) => setSelectedReportYear(parseInt(e.target.value, 10))}
+                                  className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs font-black text-blue-900 outline-none cursor-pointer shadow-xs"
+                                >
+                                  {[2024, 2025, 2026, 2027, 2028].map(y => (
+                                    <option key={y} value={y}>Năm {y}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            {/* 4. TẤT CẢ LƯỢT CHẤM */}
+                            {reportFilterMode === 'ALL' && (
+                              <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
+                                Tất cả ({filteredHospitalDatabase.length} đợt)
+                              </span>
+                            )}
+
+                            {/* NÚT XUẤT PDF & ADMIN SETTINGS */}
+                            <button 
+                              onClick={() => setPrintSubsystemModal(activeSubDashboard)} 
+                              className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black rounded-xl flex items-center gap-1.5 shadow-md transition-all scale-100 hover:scale-[1.02]"
+                            >
+                              🖨️ Xuất Báo Cáo PDF ({activeSubDashboard === 'LAM_SANG' ? 'Khối Lâm Sàng' : activeSubDashboard === 'PHONG_BAN' ? 'Khối Phòng Ban' : 'Khối Cận Lâm Sàng'})
+                            </button>
+                            {isAdminLoggedIn && (
+                              <>
+                                <button onClick={handleExportData} className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-bold rounded-xl flex items-center gap-1 transition-colors">
+                                  📥 Xuất File Sao Lưu (JSON)
+                                </button>
+                                <button onClick={() => setShowSettings(true)} className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 font-bold rounded-xl flex items-center gap-1 transition-colors">
+                                  ⚙️ Cài Đặt Cloud
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
 
