@@ -303,11 +303,17 @@ export default function App() {
   const [viewImageModal, setViewImageModal] = useState(null);
   const [editingEvalId, setEditingEvalId] = useState(null);
 
-  // State Lọc Báo cáo (Theo Tháng / Quý / Năm / Tất cả)
-  const [reportFilterMode, setReportFilterMode] = useState('MONTH'); // 'MONTH' | 'QUARTER' | 'YEAR' | 'ALL'
-  const [selectedReportYear, setSelectedReportYear] = useState(2026);
-  const [selectedReportMonth, setSelectedReportMonth] = useState(7);
-  const [selectedReportQuarter, setSelectedReportQuarter] = useState(3);
+  // Lấy thời gian thực hiện tại
+  const nowRealDate = new Date();
+  const currentRealYear = nowRealDate.getFullYear();
+  const currentRealMonth = nowRealDate.getMonth() + 1;
+  const currentRealQuarter = Math.ceil(currentRealMonth / 3);
+
+  // State Lọc Báo cáo (Mặc định: Theo Quý hiện tại theo thời gian thực)
+  const [reportFilterMode, setReportFilterMode] = useState('QUARTER'); // 'MONTH' | 'QUARTER' | 'YEAR' | 'ALL'
+  const [selectedReportYear, setSelectedReportYear] = useState(currentRealYear);
+  const [selectedReportMonth, setSelectedReportMonth] = useState(currentRealMonth);
+  const [selectedReportQuarter, setSelectedReportQuarter] = useState(currentRealQuarter);
   const [showCalendarPicker, setShowCalendarPicker] = useState(false);
   const calendarPickerRef = useRef(null);
 
@@ -795,7 +801,7 @@ export default function App() {
         S1: "S1 - Không sàng lọc",
         S2: "S2 - Không sắp xếp",
         S3: "S3 - Không sạch sẽ",
-        S4: "S4 - Không duy trì",
+        S4: "S4 - Không săn sóc",
         S5: "S5 - Không sẵn sàng"
       };
 
@@ -851,12 +857,18 @@ export default function App() {
 const getSErrorsText = (r) => {
   if (!r || !r.criteria) return '';
   const errors = [];
-  if (r.criteria[0] === false) errors.push("S1 (Không sàng lọc)");
-  if (r.criteria[1] === false || r.criteria[2] === false || r.criteria[3] === false) errors.push("S2 (Không sắp xếp)");
-  if (r.criteria[4] === false) errors.push("S3 (Không sạch sẽ)");
-  if (r.criteria[5] === false) errors.push("S4 (Không duy trì)");
-  if (r.criteria[6] === true) errors.push("S5 (Không sẵn sàng)");
-  return errors.length > 0 ? `Lỗi ${errors.join(', ')}` : '';
+  if (r.criteria[0] === false) errors.push("S1 (không sàng lọc)");
+  if (r.criteria[1] === false || r.criteria[2] === false || r.criteria[3] === false) {
+    const s2Violations = [];
+    if (r.criteria[1] === false) s2Violations.push("chưa tách biệt");
+    if (r.criteria[2] === false) s2Violations.push("quy ước thứ tự");
+    if (r.criteria[3] === false) s2Violations.push("thiếu tem nhãn");
+    errors.push(`S2 (${s2Violations.join(', ')})`);
+  }
+  if (r.criteria[4] === false) errors.push("S3 (không sạch sẽ)");
+  if (r.criteria[5] === false) errors.push("S4 (không có người phụ trách)");
+  if (r.criteria[6] === true) errors.push("S5 (không sẵn sàng)");
+  return errors.length > 0 ? `Lỗi ${errors.join('; ')}` : '';
 };
 
 const getCaptionWithSErrors = (r) => {
@@ -1624,6 +1636,12 @@ const getCaptionWithSErrors = (r) => {
                                             );
                                           })}
                                         </div>
+                                        {getSErrorsText(row) ? (
+                                          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg text-[11px] font-bold text-red-700 flex items-start gap-1">
+                                            <span>⚠️</span>
+                                            <span>{getSErrorsText(row)}</span>
+                                          </div>
+                                        ) : null}
                                       </div>
 
                                       <div className="space-y-3 flex flex-col justify-between">
@@ -1788,6 +1806,12 @@ const getCaptionWithSErrors = (r) => {
                                     );
                                   })}
                                 </div>
+                                {getSErrorsText(row) ? (
+                                  <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg text-[11px] font-bold text-red-700 flex items-start gap-1">
+                                    <span>⚠️</span>
+                                    <span>{getSErrorsText(row)}</span>
+                                  </div>
+                                ) : null}
                               </div>
 
                               <div className="space-y-2">
@@ -2218,7 +2242,7 @@ const getCaptionWithSErrors = (r) => {
                               <p className="text-[11px] font-bold text-slate-900 truncate">{imgItem.department}</p>
                               <p className="text-[10px] text-slate-600 font-medium truncate">Vị trí: {imgItem.location}</p>
                               {getSErrorsText(imgItem) ? (
-                                <div className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded truncate">
+                                <div className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded line-clamp-2 leading-tight" title={getSErrorsText(imgItem)}>
                                   ⚠️ {getSErrorsText(imgItem)}
                                 </div>
                               ) : null}
@@ -2394,7 +2418,7 @@ const getCaptionWithSErrors = (r) => {
                                     </div>
                                     <div className="space-y-1 mt-1">
                                       {getSErrorsText(imgItem) ? (
-                                        <div className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded truncate">
+                                        <div className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded line-clamp-2 leading-tight" title={getSErrorsText(imgItem)}>
                                           ⚠️ {getSErrorsText(imgItem)}
                                         </div>
                                       ) : null}
